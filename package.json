@@ -7,7 +7,8 @@
     "packages/shared",
     "packages/case-management",
     "packages/reunification",
-    "packages/parking"
+    "packages/parking",
+    "packages/identity"
   ],
   "scripts": {
     "case-management": "npm run start --workspace packages/case-management",
@@ -16,6 +17,9 @@
     "reunification:test": "npm run test --workspace packages/reunification",
     "parking": "npm run start --workspace packages/parking",
     "parking:seed": "npm run seed --workspace packages/parking",
-    "parking:test": "npm run test --workspace packages/parking"
+    "parking:test": "npm run test --workspace packages/parking",
+    "identity": "npm run start --workspace packages/identity",
+    "identity:seed": "npm run seed --workspace packages/identity",
+    "identity:test": "npm run test --workspace packages/identity"
   }
 }

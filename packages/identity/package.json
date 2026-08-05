@@ -1,0 +1,18 @@
+{
+  "name": "fgsd-identity",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FGSD Identity Service -- Person, Vehicle, and Location master files, NCIC/LEDS-inspired. Phase 1: standalone service. Wiring case-management and parking to consume it instead of their own free-text identity fields is separate, subsequent work.",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "seed": "node server/seed.js",
+    "test": "node tests/effectiveDating.test.js"
+  },
+  "dependencies": {
+    "sql.js": "^1.12.0",
+    "express": "^4.18.2",
+    "uuid": "^9.0.0"
+  }
+}

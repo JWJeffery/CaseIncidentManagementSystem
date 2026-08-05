@@ -39,6 +39,22 @@ handled as a first-class architectural concern, not an afterthought.
     `@fgsd/shared` (CommonJS) isn't importable from the live UI yet, only
     from Node-run tests. Needs a decision (bundler vs. duplicate
     browser-safe export vs. defer until Reunification gets a real backend).
+  - `packages/identity/` (added 2026-08-05) — **Phase 1 of the identity
+    cross-module work.** Standalone service, own database, own port
+    (3002). Person/Vehicle/Location master files, NCIC/LEDS-inspired
+    structure (lean canonical record + separate time-bound history
+    records that reference it, rather than repeating identity data per
+    module). No SSN collected — SIS ID covers both students and staff
+    (Josh confirmed staff carry SIS IDs too). Vehicle is VIN-anchored,
+    with plate/state and ownership as separate effective-dated history
+    (`server/effectiveDating.js`, tested — `tests/effectiveDating.test.js`).
+    Location file seeded with the real 16-site FGSD building directory
+    (some addresses intentionally left blank rather than guessed — see
+    seed.js comment). Has a real, working, minimal UI, not API-only.
+    **Explicitly Phase 1 only** — `case-management` and `parking` do NOT
+    yet consume this service; they still use their own free-text
+    personId/vehicle fields. Wiring that up is Phase 2, separate,
+    substantial work — not started.
   - `packages/parking/` (added 2026-08-05) — Vehicle, Parking Permit,
     Violation Code Library (13 entries seeded from proposed Board Policy
     ECD §4(A)-(M)), Citation (two-track: Administrative enabled today,
@@ -77,9 +93,10 @@ handled as a first-class architectural concern, not an afterthought.
     Policy ECD.** Do not flip these without explicit confirmation. Both
     flags are verified (real HTTP 403 tests, not just code review) to
     actually block Court-track citation creation and all Tow writes.
-  - Root `npm install` sets up all four workspaces.
+  - Root `npm install` sets up all five workspaces.
     `npm run case-management` / `case-management:seed` /
-    `reunification` / `reunification:test` / `parking` / `parking:seed`.
+    `reunification` / `reunification:test` / `parking` / `parking:seed` /
+    `parking:test` / `identity` / `identity:seed` / `identity:test`.
   - **Standalone Reunification repo is now redundant** — Josh can delete
     it to free a repo slot; its content is fully preserved in
     `packages/reunification/` here.
@@ -255,10 +272,19 @@ is treated as fully "finished" in the cross-module sense.
    before either goes to production.
 3. Once Josh confirms the monorepo push is solid, he deletes the standalone
    Reunification repo to free a slot.
-4. No shared Person store exists yet — `parking` and `case-management`
-   both use free-text `personId` strings with no cross-reference. This is
-   the design doc's biggest unbuilt piece (§4.1) and blocks real
-   cross-module linkage (e.g. an Exclusion check at citation time).
+4. **No shared Person store — Phase 1 now exists (`packages/identity`),
+   Phase 2 does not.** `parking` and `case-management` still use free-text
+   `personId` strings with no cross-reference to the new identity service.
+   This is now the concrete next step, not an abstract gap: wire at least
+   one consumer (probably `parking`'s Permits/Vehicles, since it's the
+   most complete module) to actually call `packages/identity`'s API
+   instead of its own free-text fields, then repeat for `case-management`.
+   Real design questions to resolve before starting: does each package
+   keep a local cache/copy of person data it references (risk: drift) or
+   always call out to the identity service live (risk: cross-service
+   latency/availability coupling)? How does a citation's `personId` (a
+   driver, not necessarily on file yet) relate to the identity service's
+   canonical Person record?
 5. **Document upload is a labeled PROTOTYPE, not production-ready** —
    `packages/parking/server/routes/attachments.js` + `document_attachments`
    table. Local disk storage, no encryption at rest, no access control, no
