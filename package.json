@@ -6,12 +6,15 @@
   "workspaces": [
     "packages/shared",
     "packages/case-management",
-    "packages/reunification"
+    "packages/reunification",
+    "packages/parking"
   ],
   "scripts": {
     "case-management": "npm run start --workspace packages/case-management",
     "case-management:seed": "npm run seed --workspace packages/case-management",
     "reunification": "npm run start --workspace packages/reunification",
-    "reunification:test": "npm run test --workspace packages/reunification"
+    "reunification:test": "npm run test --workspace packages/reunification",
+    "parking": "npm run start --workspace packages/parking",
+    "parking:seed": "npm run seed --workspace packages/parking"
   }
 }

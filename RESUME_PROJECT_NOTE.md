@@ -25,32 +25,49 @@ handled as a first-class architectural concern, not an afterthought.
   - `packages/case-management/` — Express + sql.js backend, formerly
     standalone. Case → Persons → Notes → Violations → Documents. KGB policy
     library (26 seeded entries). Generates the Exclusion Notice form (see
-    §4.5b of the design doc).
+    §4.5b of the design doc). **A real bug was found and fixed here**
+    (2026-08-05): `POST /api/cases` was silently broken since it was
+    written — see "Bugs found and fixed" below.
   - `packages/reunification/` — folded in from the (now-redundant)
     standalone Reunification repo. Client-side only, no backend yet.
     Claimant entry → SIS/Synergy match approval → reunifier handoff →
     release workflow. Real test suite (`npm run reunification:test`).
+    Its dashboard (`dashboardItems` in `src/main.js`) was refined
+    (2026-08-05) to cover the whole monorepo's status, not just
+    Reunification — 41 items across 6 modules, grouped/collapsible.
     **Open question, unresolved:** browser code has no bundler, so
     `@fgsd/shared` (CommonJS) isn't importable from the live UI yet, only
     from Node-run tests. Needs a decision (bundler vs. duplicate
     browser-safe export vs. defer until Reunification gets a real backend).
+  - `packages/parking/` (added 2026-08-05) — Vehicle, Parking Permit,
+    Violation Code Library (13 entries seeded from proposed Board Policy
+    ECD §4(A)-(M)), Citation (two-track: Administrative enabled today,
+    Court board-gated), Tow (entire subsystem board-gated), DMV Query Log
+    (fields sourced from District DMV2U Protocol 010 §8). Has a working
+    UI (`public/js/app.js`, tabbed single-page app). Runs on port 3001
+    (`npm run parking` / `npm run parking:seed`) so it can run alongside
+    case-management (port 3000) without collision.
   - `packages/shared/` (`@fgsd/shared`) — Incident Number (lifetime
     sequence, `FGSD-#######`) / Case Number (annual reset,
     `FGSD-YYYY-#####`) formatting; records classification enum + disclosure
     log helper; board-authority feature flags (`ECD_COURT_CITATIONS_ENABLED`,
     `ECD_TOWING_ENABLED`) — **both hardcoded `false`, must stay that way
     until Josh confirms actual school board adoption of proposed Board
-    Policy ECD.** Do not flip these without explicit confirmation.
-  - Root `npm install` sets up all three workspaces.
+    Policy ECD.** Do not flip these without explicit confirmation. Both
+    flags are verified (real HTTP 403 tests, not just code review) to
+    actually block Court-track citation creation and all Tow writes.
+  - Root `npm install` sets up all four workspaces.
     `npm run case-management` / `case-management:seed` /
-    `reunification` / `reunification:test`.
+    `reunification` / `reunification:test` / `parking` / `parking:seed`.
   - **Standalone Reunification repo is now redundant** — Josh can delete
     it to free a repo slot; its content is fully preserved in
     `packages/reunification/` here.
 - **Reunification** (standalone) — superseded by the monorepo. Slated for
   deletion by Josh once he's confirmed the monorepo push is good.
 - **PrayerAppNew**, **Scriptorium**, **LOTH** — unrelated projects, not
-  part of this workstream.
+  part of this workstream. (LOTH = Liturgy of the Hours, a liturgical
+  project, not a school-safety dashboard as once assumed mid-session —
+  corrected same day.)
 
 ## The design doc
 
@@ -104,17 +121,49 @@ directory when copying files between two different repos' working trees —
 copy specific subdirectories/files instead, exactly as the corrected
 version did.
 
+## Bugs found and fixed (2026-08-05) — read before writing new SQL
+
+`packages/case-management/server/db.js`'s `normaliseParams()` binds named
+params as `$fieldName`. If a route's SQL uses `@fieldName` instead,
+`sql.js` silently fails to bind it — this is not a loud error, it just
+means the parameter never gets set, so `NOT NULL` columns throw on insert
+and nullable columns end up `NULL`. **Always use `$fieldName` in SQL,
+matching the seed.js files (which were already correct) and `Stmt`'s
+actual convention.** This broke `case-management`'s real `POST /api/cases`
+route since it was originally written — demo data via seed.js looked fine
+because seed.js happened to use the correct syntax; the live API route did
+not. All 5 new parking routes had the same bug when first written (copied
+the broken pattern before it was caught) — fixed in the same pass.
+Verified via real HTTP requests against running servers, not just code
+review. `persons.js`, `notes.js`, `violations.js`, `documents.js` in
+case-management were already using safe positional `?` params and were
+never affected.
+
+Separately: an `async` Express route handler with no try/catch let a
+thrown DB error become an unhandled promise rejection, which crashes the
+entire Node process under Node 22 (not just the one request). Fixed in
+`parking/server/routes/citations.js`; added a global error-handling
+middleware + `unhandledRejection` listener in `parking/server/index.js` as
+a safety net. Worth auditing `case-management`'s routes for the same
+`async`-without-try/catch pattern if any get added later — none currently
+exist there (all synchronous), which is why this specific failure mode
+hadn't surfaced there yet.
+
 ## On the horizon
 
-1. **Dashboards** — Lucy previously built dashboards for these builds.
-   Location unknown as of this note (not found in CaseIncidentManagementSystem
-   or Reunification repo history — searched, no trace). Need to ask Josh
-   directly where these live (separate repo? GitHub Pages? a hosting
-   service?) before attempting to refine/redeploy them.
-2. Resolve the Reunification browser-bundler open question before wiring
+1. Resolve the Reunification browser-bundler open question before wiring
    shared entities into its live UI.
-3. Pick a build priority from the design doc's remaining open decisions
-   (doc §8's final open item: which module gets real development attention
-   first).
+2. Central counter service (`@fgsd/shared/src/identifiers.js`) is still an
+   in-memory reference implementation. `case-management` and `parking`
+   each generate Case Numbers independently against their own tables —
+   if both need to draw from one true sequence, that has to get built
+   before either goes to production.
+3. Continue building out `packages/parking`'s UI/workflow depth (e.g. the
+   Tow subsystem's statutory-deadline tracking mentioned in design doc
+   §4.12a isn't implemented yet, just the schema/gating).
 4. Once Josh confirms the monorepo push is solid, he deletes the standalone
    Reunification repo to free a slot.
+5. No shared Person store exists yet — `parking` and `case-management`
+   both use free-text `personId` strings with no cross-reference. This is
+   the design doc's biggest unbuilt piece (§4.1) and blocks real
+   cross-module linkage (e.g. an Exclusion check at citation time).

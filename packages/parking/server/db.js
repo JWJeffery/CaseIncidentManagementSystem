@@ -1,0 +1,189 @@
+// server/db.js — uses sql.js (pure-JS SQLite, no native build needed)
+// Mirrors packages/case-management/server/db.js's pattern intentionally,
+// for consistency across the monorepo. (Worth extracting the sql.js
+// wrapper below into @fgsd/shared at some point, since it's now
+// duplicated verbatim in two packages — flagging, not doing it in this
+// pass to avoid touching case-management's already-working db layer.)
+const path = require('path');
+const fs   = require('fs');
+
+const DB_PATH = path.join(__dirname, '..', 'data', 'parking.db');
+if (!fs.existsSync(path.dirname(DB_PATH))) {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+}
+
+let _db = null;
+
+async function initDB() {
+  if (_db) return _db;
+  const initSqlJs = require('sql.js');
+  const SQL = await initSqlJs();
+
+  if (fs.existsSync(DB_PATH)) {
+    const buf = fs.readFileSync(DB_PATH);
+    _db = new SQL.Database(buf);
+  } else {
+    _db = new SQL.Database();
+  }
+
+  _db._save = () => {
+    const data = _db.export();
+    fs.writeFileSync(DB_PATH, Buffer.from(data));
+  };
+
+  _db.run('PRAGMA foreign_keys = ON;');
+
+  // Design doc §4.10 — Vehicle. selfReported vs. dmvVerified provenance
+  // split, same pattern as Person/Synergy staleness tracking.
+  _db.run(`CREATE TABLE IF NOT EXISTS vehicles (
+    id TEXT PRIMARY KEY, plate TEXT, state TEXT, vin TEXT,
+    make TEXT, model TEXT, color TEXT, ownerPersonId TEXT,
+    selfReported INTEGER DEFAULT 1, dmvVerified INTEGER DEFAULT 0,
+    dmvVerifiedAt TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+  );`);
+
+  // Design doc §4.11 — Parking Permit. Formalizes the current spreadsheet.
+  // NOTE (open, flagged in design doc §8 item 9): ECD §5(A) limits
+  // administrative citation eligibility to student/district personnel,
+  // while JHFD's permit language is broader. This table does not resolve
+  // that conflict — it just formalizes what's on the spreadsheet today.
+  _db.run(`CREATE TABLE IF NOT EXISTS parking_permits (
+    id TEXT PRIMARY KEY, personId TEXT NOT NULL, vehicleId TEXT NOT NULL,
+    permitNumber TEXT UNIQUE NOT NULL, schoolSite TEXT,
+    insuranceInfo TEXT, ownershipInfo TEXT,
+    issuedDate TEXT NOT NULL, expirationDate TEXT,
+    status TEXT DEFAULT 'Active',
+    createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+  );`);
+
+  // Design doc §4.12b — Violation Code Library. Parallel pattern to
+  // case-management's policy_library (KGB), seeded from ECD §4(A)-(M) plus
+  // reference entries for Vehicle Code / Forest Grove Traffic Code basis.
+  _db.run(`CREATE TABLE IF NOT EXISTS violation_codes (
+    id TEXT PRIMARY KEY,
+    violationBasis TEXT NOT NULL,
+    citation TEXT UNIQUE NOT NULL,
+    shortLabel TEXT NOT NULL,
+    description TEXT NOT NULL,
+    violationClass TEXT NOT NULL
+  );`);
+
+  // Design doc §4.12 — Citation. citationType discriminates Administrative
+  // (Education Record, enabled today) vs. Court (LEU -> Court Record,
+  // board-gated — see server/routes/citations.js for the enforcement of
+  // that gate, not just this schema comment).
+  _db.run(`CREATE TABLE IF NOT EXISTS citations (
+    id TEXT PRIMARY KEY,
+    incidentNumber TEXT, caseNumber TEXT,
+    vehicleId TEXT, personId TEXT, violationCodeId TEXT NOT NULL,
+    citationType TEXT NOT NULL DEFAULT 'Administrative',
+    recordsClassification TEXT NOT NULL,
+    enforcementOfficerId TEXT NOT NULL,
+    location TEXT, dateIssued TEXT NOT NULL,
+    status TEXT DEFAULT 'Issued', notes TEXT,
+    createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+  );`);
+
+  // Design doc §4.12a — Tow. Entire subsystem is board-gated (see
+  // server/routes/tows.js) — schema exists so the system is ready the day
+  // ECD is adopted, per design doc §1.7.
+  _db.run(`CREATE TABLE IF NOT EXISTS tows (
+    id TEXT PRIMARY KEY,
+    vehicleId TEXT NOT NULL, citationId TEXT,
+    towReason TEXT NOT NULL, hazardTow INTEGER DEFAULT 0,
+    preTowNoticeAffixedAt TEXT, towedAt TEXT,
+    postTowNoticeMailedAt TEXT, hearingRequestedAt TEXT,
+    hearingScheduledAt TEXT, hearingDecision TEXT,
+    chargesAmount TEXT, chargesPaidAt TEXT,
+    releasedTo TEXT, releasedAt TEXT,
+    createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+  );`);
+
+  // Design doc §4.13 — DMV Query Log. Fields sourced directly from
+  // District DMV2U Record Inquiry Account Protocol (010) §8 — not
+  // invented. Not user-deletable; 5-year retention is a legal minimum
+  // (Protocol 010 §14), enforced at the application layer, not here.
+  _db.run(`CREATE TABLE IF NOT EXISTS dmv_query_log (
+    id TEXT PRIMARY KEY,
+    dateTime TEXT NOT NULL,
+    authorizedUserName TEXT NOT NULL, authorizedUserTitle TEXT,
+    authorizedUserBuilding TEXT, authorizedUserDmv2uUsername TEXT NOT NULL,
+    requestingEmployee TEXT,
+    recordIdentifier TEXT NOT NULL,
+    location TEXT,
+    referenceNumber TEXT,
+    factualBasis TEXT NOT NULL,
+    permissiblePurposeCategory TEXT NOT NULL,
+    dmvRecordAccessed TEXT, personalInformationUsed TEXT,
+    wasRedisclosed INTEGER DEFAULT 0,
+    redisclosureRecipient TEXT, redisclosureReason TEXT,
+    dispositionOrAction TEXT,
+    createdAt TEXT NOT NULL
+  );`);
+
+  _db._save();
+  return _db;
+}
+
+// ── sql.js result helpers (identical to case-management/server/db.js) ────
+function rowToObj(cols, row) {
+  const obj = {};
+  cols.forEach((c, i) => { obj[c] = row[i] !== undefined ? row[i] : null; });
+  return obj;
+}
+
+function normaliseParams(args) {
+  if (args.length === 1 && args[0] !== null && typeof args[0] === 'object' && !Array.isArray(args[0])) {
+    const obj = args[0];
+    const out = {};
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      out['$' + k] = (v === undefined ? null : v);
+    }
+    return out;
+  }
+  if (args.length === 1 && Array.isArray(args[0])) return args[0];
+  return args;
+}
+
+class Stmt {
+  constructor(db, sql) { this._db = db; this._sql = sql; }
+
+  all(...args) {
+    const stmt = this._db.prepare(this._sql);
+    const cols = stmt.getColumnNames();
+    const params = normaliseParams(args);
+    stmt.bind(params);
+    const rows = [];
+    while (stmt.step()) rows.push(rowToObj(cols, stmt.get()));
+    stmt.free();
+    return rows;
+  }
+
+  get(...args) {
+    const stmt = this._db.prepare(this._sql);
+    const cols = stmt.getColumnNames();
+    const params = normaliseParams(args);
+    stmt.bind(params);
+    let result;
+    if (stmt.step()) result = rowToObj(cols, stmt.get());
+    stmt.free();
+    return result;
+  }
+
+  run(...args) {
+    const params = normaliseParams(args);
+    this._db.run(this._sql, params);
+    this._db._save();
+    return { changes: this._db.getRowsModified() };
+  }
+}
+
+const dbProxy = {
+  prepare(sql) {
+    if (!_db) throw new Error('DB not initialised');
+    return new Stmt(_db, sql);
+  }
+};
+
+module.exports = { initDB, db: dbProxy };

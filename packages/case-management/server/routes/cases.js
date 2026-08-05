@@ -77,9 +77,9 @@ router.post('/', (req, res) => {
     INSERT INTO cases (id, caseNumber, openedAt, incidentAt, schoolSite, location, incidentType,
       createdBy, assignedTo, initialNarrative, immediateActions, status, disposition,
       lawEnforcementInvolved, safetyRiskLevel, createdAt, updatedAt)
-    VALUES (@id, @caseNumber, @openedAt, @incidentAt, @schoolSite, @location, @incidentType,
-      @createdBy, @assignedTo, @initialNarrative, @immediateActions, @status, @disposition,
-      @lawEnforcementInvolved, @safetyRiskLevel, @createdAt, @updatedAt)
+    VALUES ($id, $caseNumber, $openedAt, $incidentAt, $schoolSite, $location, $incidentType,
+      $createdBy, $assignedTo, $initialNarrative, $immediateActions, $status, $disposition,
+      $lawEnforcementInvolved, $safetyRiskLevel, $createdAt, $updatedAt)
   `).run(data);
   res.json({ id, caseNumber });
 });

@@ -1,0 +1,18 @@
+{
+  "name": "fgsd-parking-citation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Forest Grove SD Parking / Citation / Towing system. Court-track citations and towing are board-gated pending school board adoption of proposed Board Policy ECD -- see @fgsd/shared/src/featureFlags.js.",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "seed": "node server/seed.js"
+  },
+  "dependencies": {
+    "@fgsd/shared": "*",
+    "sql.js": "^1.12.0",
+    "express": "^4.18.2",
+    "uuid": "^9.0.0"
+  }
+}
