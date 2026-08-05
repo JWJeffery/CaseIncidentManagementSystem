@@ -405,15 +405,25 @@ function renderPermits() {
           <select id="permitTypeFilter"><option value="">All</option>${filterTypeOptions}</select>
         </div>
       </div>
-      <table><thead><tr><th>Permit #</th><th>Registrant</th><th>Type</th><th>Vehicle</th><th>Zone</th><th>School</th><th>Status</th><th>Issued By</th></tr></thead>
+      <table><thead><tr><th>Permit #</th><th>Registrant</th><th>Type</th><th>Vehicle</th><th>Zone</th><th>Expires</th><th>School</th><th>Status</th><th>Issued By</th><th>Action</th></tr></thead>
       <tbody>${filtered.map(p => `<tr>
         <td>${esc(p.permitNumber)}</td><td>${esc(p.registrantName) || esc(p.personId)}</td>
         <td>${esc(p.permitType)}</td>
         <td>${esc((state.vehicles.find(v => v.id === p.vehicleId) || {}).plate)}</td>
         <td>${esc(p.parkingZone)}</td>
+        <td>${esc(p.expirationDate) || '—'}</td>
         <td>${esc(p.schoolSite)}</td><td>${esc(p.status)}</td>
         <td>${p.issuedBy ? esc(staffName(p.issuedBy)) : '—'}</td>
-      </tr>`).join('') || `<tr><td colspan="8">${state.permits.length ? 'No permits match your filters.' : 'No permits yet.'}</td></tr>`}</tbody></table>
+        <td>
+          ${p.status === 'Expired' ? `
+            <form class="permitRenewForm" data-permit="${p.id}" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
+              <input name="expirationDate" type="date" required style="padding:3px;width:130px;">
+              <select name="renewedBy" required style="padding:3px;"><option value="">Renewed by...</option>${staffOptions()}</select>
+              <button type="submit" style="padding:3px 8px;font-size:0.8rem;">Renew</button>
+            </form>` : '—'}
+          ${p.renewedAt ? `<div style="font-size:0.7rem;color:var(--gray-4);margin-top:2px;">Last renewed ${new Date(p.renewedAt).toLocaleDateString()} by ${esc(staffName(p.renewedBy))}</div>` : ''}
+        </td>
+      </tr>`).join('') || `<tr><td colspan="10">${state.permits.length ? 'No permits match your filters.' : 'No permits yet.'}</td></tr>`}</tbody></table>
     </div>`;
 }
 
@@ -773,6 +783,20 @@ function wireEvents() {
     } catch (err) { state.msg = { type: 'error', text: err.message }; }
     render();
   };
+
+  root.querySelectorAll('.permitRenewForm').forEach(form => {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const permitId = form.dataset.permit;
+      const body = Object.fromEntries(new FormData(form));
+      try {
+        await api(`/permits/${permitId}/renew`, { method: 'POST', body: JSON.stringify(body) });
+        await loadAll();
+        state.msg = { type: 'success', text: 'Permit renewed.' };
+      } catch (err) { state.msg = { type: 'error', text: err.message }; }
+      render();
+    };
+  });
 
   const citationForm = document.getElementById('citationForm');
   if (citationForm) citationForm.onsubmit = async (e) => {

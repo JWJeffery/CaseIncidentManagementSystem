@@ -199,17 +199,20 @@ computation for all four ECD-specified windows with ok/due-soon/overdue
 status, still fully board-gated. Known limitation: weekends are excluded
 from deadline math, holidays are not (no district holiday calendar
 available yet).
+Done: Permit expiration enforcement + renewal flow
+(`server/permitExpiration.js`, `tests/permitExpiration.test.js`). This was
+a real compliance gap, not cosmetic: an expired permit previously still
+read Active everywhere, including Citation's Administrative-eligibility
+check and Field Lookup's result. Fixed via an opportunistic sweep
+(`sweepExpiredPermits()`) plus a single shared `getActiveValidPermitForVehicle()`
+now used by permits.js, citations.js, and vehicles.js instead of three
+separate driftable queries. New `POST /api/permits/:id/renew`.
 
 Still open, roughly in priority order:
-1. **Permit expiration handling** — `expirationDate` exists but nothing
-   transitions a permit to `Expired` automatically; no renewal flow. (The
-   Permits status filter already has an "Expired" option in the
-   dropdown — it just never matches anything yet, which is itself proof
-   this is unbuilt.)
-2. **Reporting/analytics** — no violation trend or citation-count views.
-3. **PWA/offline support** — Field Lookup was designed with the
+1. **Reporting/analytics** — no violation trend or citation-count views.
+2. **PWA/offline support** — Field Lookup was designed with the
    phone-in-hand use case in mind but isn't installable or offline-capable.
-4. Cross-module dependencies, not strictly parking-scoped, but block real
+3. Cross-module dependencies, not strictly parking-scoped, but block real
    completeness: no shared Person store, no auth/role system anywhere.
 
 ## On the horizon

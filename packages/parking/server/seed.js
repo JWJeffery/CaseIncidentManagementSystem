@@ -83,6 +83,33 @@ async function run() {
     .run({ id: uuidv4(), vehicleId: demoVehicleId, now, issuedBy: demoStaffId });
 
   console.log('✓ Demo vehicle + active Student permit seeded (for Administrative-track citation testing)');
+
+  // Second demo vehicle with an already-expired permit -- makes the sweep
+  // and renewal flow visible/testable immediately after seeding, rather
+  // than needing to wait for a real permit to actually expire.
+  const expiredVehicleId = uuidv4();
+  db.prepare(`INSERT OR IGNORE INTO vehicles (id, plate, state, vin, make, model, year, color,
+      ownerPersonId, ownerName, ownerRelationship, enteredBy,
+      selfReported, dmvVerified, dmvVerifiedAt, createdAt, updatedAt)
+    VALUES ($id, 'EXPIRED1', 'OR', '2HGES16561H123456', 'Honda', 'Civic', '2019', 'Silver',
+      'demo-person-2', 'Alex Demo', 'Self', $enteredBy, 1, 0, NULL, $now, $now)`)
+    .run({ id: expiredVehicleId, now, enteredBy: demoStaffId });
+
+  db.prepare(`INSERT OR IGNORE INTO parking_permits (id, personId, vehicleId, permitNumber, schoolSite,
+      registrantName, affiliateType, studentIdNumber, employeeIdNumber,
+      driverLicenseNumber, driverLicenseState,
+      insuranceCarrier, insurancePolicyNumber, insurancePolicyExpiration,
+      ownershipInfo, permitType, parkingZone, issuedBy,
+      issuedDate, expirationDate, status, createdAt, updatedAt)
+    VALUES ($id, 'demo-person-2', $vehicleId, 'PERMIT-2025-DEMO2', 'Forest Grove High School',
+      'Alex Demo', 'Student', 'S7654321', '',
+      'DEMO9876D', 'OR',
+      'Demo Mutual Insurance', 'POL-DEMO-0002', '2025-12-31',
+      '', 'Student', 'Lot A - Student', $issuedBy,
+      '2025-01-15T00:00:00.000Z', '2025-06-30', 'Active', $createdAt, $now)`)
+    .run({ id: uuidv4(), vehicleId: expiredVehicleId, issuedBy: demoStaffId, createdAt: '2025-01-15T00:00:00.000Z', now });
+
+  console.log('✓ Demo vehicle with an already-expired permit seeded (status still says Active until the next read sweeps it -- demonstrates the expiration sweep)');
   console.log('\n✅ All parking module seed data complete. Run: npm run parking\n');
 }
 

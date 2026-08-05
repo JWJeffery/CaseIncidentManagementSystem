@@ -4,6 +4,7 @@ const router = express.Router();
 const { db } = require('../db');
 const { v4: uuidv4 } = require('uuid');
 const { requireActiveStaff } = require('./staff');
+const { getActiveValidPermitForVehicle } = require('./permits');
 
 // GET /api/vehicles - list with optional plate/VIN search
 router.get('/', (req, res) => {
@@ -51,9 +52,11 @@ router.get('/lookup', (req, res) => {
     return res.json({ found: false, vehicle: null, permit: null });
   }
 
-  const permit = db.prepare(
-    `SELECT * FROM parking_permits WHERE vehicleId = ? AND status = 'Active' ORDER BY issuedDate DESC LIMIT 1`
-  ).get(vehicle.id);
+  // Uses the shared, sweep-aware helper (not an inline query) so a lookup
+  // never reports an actually-expired permit as if it were still active --
+  // the whole point of a field lookup is telling the officer the truth
+  // about right now.
+  const permit = getActiveValidPermitForVehicle(vehicle.id);
 
   res.json({ found: true, vehicle, permit: permit || null });
 });

@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const { RecordsClassification, formatCaseNumber } = require('@fgsd/shared');
 const { requireFeature } = require('../featureGate');
 const { requireActiveStaff } = require('./staff');
+const { getActiveValidPermitForVehicle } = require('./permits');
 
 function esc(v) { return String(v ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch])); }
 
@@ -236,14 +237,16 @@ router.post('/', (req, res) => {
     // district personnel. This route checks the permit; person-type
     // eligibility is left to the caller/UI since Person records aren't
     // centrally typed yet (design doc's shared Person schema is still a
-    // red/unbuilt item -- see dashboard).
+    // red/unbuilt item -- see dashboard). Uses permits.js's shared
+    // getActiveValidPermitForVehicle() (not an inline query here) so an
+    // expired-but-still-marked-Active permit can't slip through -- that
+    // helper sweeps expired permits before checking, and is the single
+    // source of truth other routes rely on for this same question too.
     if (vehicleId) {
-      const activePermit = db.prepare(
-        `SELECT * FROM parking_permits WHERE vehicleId = ? AND status = 'Active' LIMIT 1`
-      ).get(vehicleId);
+      const activePermit = getActiveValidPermitForVehicle(vehicleId);
       if (!activePermit) {
         return res.status(422).json({
-          error: 'No active parking permit found for this vehicle. Administrative citations require a properly registered vehicle per ECD §5(A) -- issue a Court-track citation instead.',
+          error: 'No active parking permit found for this vehicle. Administrative citations require a properly registered, unexpired vehicle permit per ECD §5(A) -- issue a Court-track citation instead.',
         });
       }
     }

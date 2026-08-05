@@ -4,6 +4,39 @@ const router = express.Router();
 const { db } = require('../db');
 const { v4: uuidv4 } = require('uuid');
 const { requireActiveStaff } = require('./staff');
+const { isPermitExpired } = require('../permitExpiration');
+
+// Opportunistic expiration sweep -- there's no background job scheduler
+// in this app, so expiration is enforced lazily: any Active permit whose
+// expirationDate has passed gets flipped to Expired the next time
+// anything reads permit data. Called from every read path below (list,
+// single-record, and the vehicle-eligibility lookup Citation depends on)
+// so a stale "Active" status can't leak through any of them. Reuses the
+// same tested isPermitExpired() logic from permitExpiration.js rather
+// than re-implementing the date comparison in raw SQL.
+function sweepExpiredPermits() {
+  const candidates = db.prepare(
+    `SELECT * FROM parking_permits WHERE status = 'Active' AND expirationDate IS NOT NULL AND expirationDate != ''`
+  ).all();
+  const now = new Date().toISOString();
+  for (const p of candidates) {
+    if (isPermitExpired(p)) {
+      db.prepare(`UPDATE parking_permits SET status = 'Expired', updatedAt = ? WHERE id = ?`).run(now, p.id);
+    }
+  }
+}
+
+// Single source of truth for "does this vehicle have a currently-valid
+// permit" -- used by this file's own active-for-vehicle route AND
+// imported directly by citations.js (Administrative-track eligibility,
+// ECD §5(A)) and vehicles.js (Field Lookup), so there is exactly one
+// query answering this question instead of three that could drift.
+function getActiveValidPermitForVehicle(vehicleId) {
+  sweepExpiredPermits();
+  return db.prepare(
+    `SELECT * FROM parking_permits WHERE vehicleId = ? AND status = 'Active' ORDER BY issuedDate DESC LIMIT 1`
+  ).get(vehicleId) || null;
+}
 
 // Standard campus-parking-system permit categories. Each typically carries
 // different eligibility, pricing, and lot/zone assignment rules -- this is
@@ -27,6 +60,7 @@ function nextPermitNumber() {
 
 // GET /api/permits - list, optional personId/vehicleId/status/permitType filter
 router.get('/', (req, res) => {
+  sweepExpiredPermits();
   const { personId, vehicleId, status, permitType } = req.query;
   let sql = 'SELECT * FROM parking_permits WHERE 1=1';
   const params = [];
@@ -46,14 +80,12 @@ router.get('/types', (req, res) => res.json(PERMIT_TYPES));
 // This is the fact that determines Citation's Administrative-vs-Court
 // track eligibility per ECD §5(A) -- see routes/citations.js.
 router.get('/active-for-vehicle/:vehicleId', (req, res) => {
-  const permit = db.prepare(
-    `SELECT * FROM parking_permits WHERE vehicleId = ? AND status = 'Active' ORDER BY issuedDate DESC LIMIT 1`
-  ).get(req.params.vehicleId);
-  res.json(permit || null);
+  res.json(getActiveValidPermitForVehicle(req.params.vehicleId));
 });
 
 // GET /api/permits/:id
 router.get('/:id', (req, res) => {
+  sweepExpiredPermits();
   const p = db.prepare('SELECT * FROM parking_permits WHERE id = ?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Not found' });
   res.json(p);
@@ -148,4 +180,37 @@ router.patch('/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// POST /api/permits/:id/renew
+// Renewal path -- previously nonexistent ("no renewal flow" was an
+// explicitly flagged gap). Requires a real active Staff record and a new
+// expirationDate; sets status back to Active regardless of current status
+// (Expired -> renewed is the normal case, but also allows renewing an
+// Active permit early). Records who renewed it, when, and what the prior
+// expirationDate was, for audit purposes.
+router.post('/:id/renew', (req, res) => {
+  try {
+    const permit = db.prepare('SELECT * FROM parking_permits WHERE id = ?').get(req.params.id);
+    if (!permit) return res.status(404).json({ error: 'Not found' });
+    if (permit.status === 'Revoked') {
+      return res.status(400).json({ error: 'A revoked permit cannot be renewed -- issue a new permit instead.' });
+    }
+    if (!req.body.expirationDate) {
+      return res.status(400).json({ error: 'expirationDate is required to renew.' });
+    }
+    const renewer = requireActiveStaff(req.body.renewedBy, 'renewedBy');
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE parking_permits SET status = 'Active', expirationDate = ?,
+        renewedBy = ?, renewedAt = ?, previousExpirationDate = ?, updatedAt = ?
+      WHERE id = ?
+    `).run(req.body.expirationDate, renewer.id, now, permit.expirationDate, now, req.params.id);
+    res.json({ ok: true, expirationDate: req.body.expirationDate });
+  } catch (err) {
+    console.error('POST /api/permits/:id/renew failed:', err);
+    res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Internal error renewing permit.', detail: err.message });
+  }
+});
+
 module.exports = router;
+module.exports.getActiveValidPermitForVehicle = getActiveValidPermitForVehicle;
+module.exports.sweepExpiredPermits = sweepExpiredPermits;
