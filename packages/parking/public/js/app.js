@@ -1,6 +1,6 @@
 // public/js/app.js
 const root = document.getElementById('app-root');
-let state = { tab: 'lookup', vehicles: [], permits: [], permitTypes: [], applications: [], attachmentsByRecord: {}, staff: [], violationCodes: [], citations: [], tows: [], dmvLog: [], msg: null, lookupResult: null, citationPrefill: null };
+let state = { tab: 'lookup', vehicles: [], permits: [], permitTypes: [], applications: [], attachmentsByRecord: {}, staff: [], violationCodes: [], citations: [], tows: [], dmvLog: [], msg: null, lookupResult: null, citationPrefill: null, vehicleFilter: { search: '' }, permitFilter: { search: '', status: '', permitType: '' }, citationFilter: { search: '', status: '', citationType: '' }, _focusId: null, _focusPos: null };
 
 async function api(path, opts) {
   const res = await fetch(`/api${path}`, {
@@ -43,6 +43,21 @@ function staffOptions(selectedId, { includeInactive = false } = {}) {
 function staffName(id) {
   const s = state.staff.find(st => st.id === id);
   return s ? s.name : (id || '—');
+}
+
+// Shared wiring for a live-search text input: updates the given filter
+// object's key on every keystroke, remembers focus/cursor position so
+// render()'s full-DOM-replace doesn't kick focus out of the box, and
+// re-renders. Used by Vehicles/Permits/Citations search boxes.
+function wireLiveSearch(inputId, filterObj, key) {
+  const el = document.getElementById(inputId);
+  if (!el) return;
+  el.oninput = () => {
+    filterObj[key] = el.value;
+    state._focusId = inputId;
+    state._focusPos = el.selectionStart;
+    render();
+  };
 }
 
 async function loadAll() {
@@ -263,7 +278,16 @@ function renderApplicationRow(a) {
     </div>`;
 }
 
+function filterVehicles() {
+  const q = state.vehicleFilter.search.trim().toLowerCase();
+  if (!q) return state.vehicles;
+  return state.vehicles.filter(v =>
+    [v.plate, v.vin, v.make, v.model, v.ownerName].some(f => (f || '').toLowerCase().includes(q))
+  );
+}
+
 function renderVehicles() {
+  const filtered = filterVehicles();
   return `
     <div class="card">
       <h2>Add Vehicle</h2>
@@ -292,20 +316,43 @@ function renderVehicles() {
       </form>
     </div>
     <div class="card">
-      <h2>Vehicles (${state.vehicles.length})</h2>
+      <h2>Vehicles (${filtered.length}${filtered.length !== state.vehicles.length ? ` of ${state.vehicles.length}` : ''})</h2>
+      <div class="form-grid" style="margin-bottom:10px;">
+        <div><label>Search (plate, VIN, make/model, owner name)</label>
+          <input id="vehicleSearchInput" value="${esc(state.vehicleFilter.search)}" placeholder="e.g. DEMO or Ford or Pat">
+        </div>
+      </div>
       <table><thead><tr><th>Plate</th><th>State</th><th>Year/Make/Model</th><th>Color</th><th>Registered Owner</th><th>Provenance</th><th>Entered By</th></tr></thead>
-      <tbody>${state.vehicles.map(v => `<tr>
+      <tbody>${filtered.map(v => `<tr>
         <td>${esc(v.plate)}</td><td>${esc(v.state)}</td><td>${esc(v.year)} ${esc(v.make)} ${esc(v.model)}</td><td>${esc(v.color)}</td>
         <td>${esc(v.ownerName)}${v.ownerRelationship ? ` (${esc(v.ownerRelationship)})` : ''}</td>
         <td>${v.dmvVerified ? 'DMV-verified' : 'Self-reported'}</td>
         <td>${v.enteredBy ? esc(staffName(v.enteredBy)) : '—'}</td>
-      </tr>`).join('') || `<tr><td colspan="7">No vehicles yet.</td></tr>`}</tbody></table>
+      </tr>`).join('') || `<tr><td colspan="7">${state.vehicles.length ? 'No vehicles match your search.' : 'No vehicles yet.'}</td></tr>`}</tbody></table>
     </div>`;
+}
+
+function filterPermits() {
+  const { search, status, permitType } = state.permitFilter;
+  const q = search.trim().toLowerCase();
+  return state.permits.filter(p => {
+    if (status && p.status !== status) return false;
+    if (permitType && p.permitType !== permitType) return false;
+    if (q) {
+      const vehicle = state.vehicles.find(v => v.id === p.vehicleId) || {};
+      const haystack = [p.permitNumber, p.registrantName, p.personId, p.studentIdNumber, p.employeeIdNumber, vehicle.plate].map(f => (f || '').toLowerCase());
+      if (!haystack.some(f => f.includes(q))) return false;
+    }
+    return true;
+  });
 }
 
 function renderPermits() {
   const vehicleOptions = state.vehicles.map(v => `<option value="${v.id}">${esc(v.plate)} (${esc(v.make)} ${esc(v.model)})</option>`).join('');
   const permitTypeOptions = state.permitTypes.map(t => `<option>${esc(t)}</option>`).join('');
+  const filtered = filterPermits();
+  const filterTypeOptions = state.permitTypes.map(t => `<option ${state.permitFilter.permitType === t ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  const statuses = ['Active', 'Expired', 'Revoked'];
   return `
     <div class="card">
       <h2>Issue Parking Permit</h2>
@@ -343,23 +390,55 @@ function renderPermits() {
       </form>
     </div>
     <div class="card">
-      <h2>Permits (${state.permits.length})</h2>
+      <h2>Permits (${filtered.length}${filtered.length !== state.permits.length ? ` of ${state.permits.length}` : ''})</h2>
+      <div class="form-grid" style="margin-bottom:10px;">
+        <div><label>Search (permit #, registrant, ID#, plate)</label>
+          <input id="permitSearchInput" value="${esc(state.permitFilter.search)}" placeholder="e.g. PERMIT-2026 or Jamie or DEMO123">
+        </div>
+        <div><label>Status</label>
+          <select id="permitStatusFilter">
+            <option value="">All</option>
+            ${statuses.map(s => `<option ${state.permitFilter.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+          </select>
+        </div>
+        <div><label>Permit Type</label>
+          <select id="permitTypeFilter"><option value="">All</option>${filterTypeOptions}</select>
+        </div>
+      </div>
       <table><thead><tr><th>Permit #</th><th>Registrant</th><th>Type</th><th>Vehicle</th><th>Zone</th><th>School</th><th>Status</th><th>Issued By</th></tr></thead>
-      <tbody>${state.permits.map(p => `<tr>
+      <tbody>${filtered.map(p => `<tr>
         <td>${esc(p.permitNumber)}</td><td>${esc(p.registrantName) || esc(p.personId)}</td>
         <td>${esc(p.permitType)}</td>
         <td>${esc((state.vehicles.find(v => v.id === p.vehicleId) || {}).plate)}</td>
         <td>${esc(p.parkingZone)}</td>
         <td>${esc(p.schoolSite)}</td><td>${esc(p.status)}</td>
         <td>${p.issuedBy ? esc(staffName(p.issuedBy)) : '—'}</td>
-      </tr>`).join('') || `<tr><td colspan="8">No permits yet.</td></tr>`}</tbody></table>
+      </tr>`).join('') || `<tr><td colspan="8">${state.permits.length ? 'No permits match your filters.' : 'No permits yet.'}</td></tr>`}</tbody></table>
     </div>`;
+}
+
+function filterCitations() {
+  const { search, status, citationType } = state.citationFilter;
+  const q = search.trim().toLowerCase();
+  return state.citations.filter(c => {
+    if (status && c.status !== status) return false;
+    if (citationType && c.citationType !== citationType) return false;
+    if (q) {
+      const code = state.violationCodes.find(vc => vc.id === c.violationCodeId) || {};
+      const vehicle = state.vehicles.find(v => v.id === c.vehicleId) || {};
+      const haystack = [code.citation, code.shortLabel, vehicle.plate, c.caseNumber, c.personId].map(f => (f || '').toLowerCase());
+      if (!haystack.some(f => f.includes(q))) return false;
+    }
+    return true;
+  });
 }
 
 function renderCitations() {
   const vehicleOptions = state.vehicles.map(v => `<option value="${v.id}" ${state.citationPrefill?.vehicleId === v.id ? 'selected' : ''}>${esc(v.plate)}</option>`).join('');
   const codeOptions = state.violationCodes.map(c => `<option value="${c.id}" ${state.citationPrefill?.violationCodeId === c.id ? 'selected' : ''}>${esc(c.citation)} -- ${esc(c.shortLabel)}</option>`).join('');
   const pre = state.citationPrefill;
+  const filtered = filterCitations();
+  const citationStatuses = ['Issued', 'Filed', 'Dismissed', 'Paid'];
   return `
     ${pre ? `<div class="msg success">Pre-filled from Field Lookup${pre.note ? ` -- ${esc(pre.note)}` : ''}. Review before submitting.</div>` : ''}
     <div class="card">
@@ -380,9 +459,27 @@ function renderCitations() {
       </form>
     </div>
     <div class="card">
-      <h2>Citations (${state.citations.length})</h2>
+      <h2>Citations (${filtered.length}${filtered.length !== state.citations.length ? ` of ${state.citations.length}` : ''})</h2>
+      <div class="form-grid" style="margin-bottom:10px;">
+        <div><label>Search (violation, plate, case #)</label>
+          <input id="citationSearchInput" value="${esc(state.citationFilter.search)}" placeholder="e.g. 4(H) or DEMO123">
+        </div>
+        <div><label>Status</label>
+          <select id="citationStatusFilter">
+            <option value="">All</option>
+            ${citationStatuses.map(s => `<option ${state.citationFilter.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+          </select>
+        </div>
+        <div><label>Citation Type</label>
+          <select id="citationTypeFilter">
+            <option value="">All</option>
+            <option ${state.citationFilter.citationType === 'Administrative' ? 'selected' : ''}>Administrative</option>
+            <option ${state.citationFilter.citationType === 'Court' ? 'selected' : ''}>Court</option>
+          </select>
+        </div>
+      </div>
       <table><thead><tr><th>Type</th><th>Classification</th><th>Violation</th><th>Vehicle</th><th>Status</th><th>Case #</th><th>Officer</th></tr></thead>
-      <tbody>${state.citations.map(c => {
+      <tbody>${filtered.map(c => {
         const code = state.violationCodes.find(vc => vc.id === c.violationCodeId) || {};
         const vehicle = state.vehicles.find(v => v.id === c.vehicleId) || {};
         return `<tr>
@@ -391,7 +488,7 @@ function renderCitations() {
           <td>${esc(c.status)}</td><td>${esc(c.caseNumber) || '—'}</td>
           <td>${esc(staffName(c.enforcementOfficerId))}</td>
         </tr>`;
-      }).join('') || `<tr><td colspan="7">No citations yet.</td></tr>`}</tbody></table>
+      }).join('') || `<tr><td colspan="7">${state.citations.length ? 'No citations match your filters.' : 'No citations yet.'}</td></tr>`}</tbody></table>
     </div>`;
 }
 
@@ -541,12 +638,37 @@ function render() {
     ${activeRenderer()}
   `;
   wireEvents();
+
+  // Re-rendering replaces the whole tab's DOM (root.innerHTML = ...), which
+  // would otherwise steal focus out of a search box on every keystroke.
+  // Restore it if the last input event told us where focus was.
+  if (state._focusId) {
+    const el = document.getElementById(state._focusId);
+    if (el) {
+      el.focus();
+      if (state._focusPos != null && el.setSelectionRange) el.setSelectionRange(state._focusPos, state._focusPos);
+    }
+  }
 }
 
 function wireEvents() {
   root.querySelectorAll('.tab-btn').forEach(btn => {
     btn.onclick = () => { state.tab = btn.dataset.tab; state.msg = null; render(); };
   });
+
+  // --- Search/filter wiring ---
+  wireLiveSearch('vehicleSearchInput', state.vehicleFilter, 'search');
+  wireLiveSearch('permitSearchInput', state.permitFilter, 'search');
+  wireLiveSearch('citationSearchInput', state.citationFilter, 'search');
+
+  const permitStatusFilter = document.getElementById('permitStatusFilter');
+  if (permitStatusFilter) permitStatusFilter.onchange = () => { state.permitFilter.status = permitStatusFilter.value; render(); };
+  const permitTypeFilter = document.getElementById('permitTypeFilter');
+  if (permitTypeFilter) permitTypeFilter.onchange = () => { state.permitFilter.permitType = permitTypeFilter.value; render(); };
+  const citationStatusFilter = document.getElementById('citationStatusFilter');
+  if (citationStatusFilter) citationStatusFilter.onchange = () => { state.citationFilter.status = citationStatusFilter.value; render(); };
+  const citationTypeFilter = document.getElementById('citationTypeFilter');
+  if (citationTypeFilter) citationTypeFilter.onchange = () => { state.citationFilter.citationType = citationTypeFilter.value; render(); };
 
   const vehicleForm = document.getElementById('vehicleForm');
   if (vehicleForm) vehicleForm.onsubmit = async (e) => {

@@ -181,28 +181,29 @@ empty or Josh explicitly redirects.
 
 ## packages/parking "finish" checklist (as of 2026-08-05)
 
-Done: search happens through Field Lookup (single-record, phone-first) but
-NOT through Vehicles/Permits/Citations tabs (no filter UI there yet).
+Done: search happens through Field Lookup (single-record, phone-first) AND
+now through Vehicles/Permits/Citations tabs too (client-side search/filter,
+added 2026-08-05).
 Done: Staff/Officer roster with real validated identity everywhere.
 Done: PROTOTYPE document attachments.
 
 Still open, roughly in priority order:
-1. **Search/filter UI** on Vehicles, Permits, Citations tabs — backend
-   mostly already supports it (`?search=` on vehicles, `?status=`/
-   `?permitType=` on permits), just no UI wired to it.
-2. **Printable citation document** — case-management has a real printable
+1. **Printable citation document** — case-management has a real printable
    Exclusion Notice; Citations here produces nothing a driver could be
    handed or that could be filed/mailed. Real gap once Court-track ever
    activates, and arguably useful for Administrative-track today too.
-3. **Permit expiration handling** — `expirationDate` exists but nothing
-   transitions a permit to `Expired` automatically; no renewal flow.
-4. **Tow's actual statutory-deadline workflow** — only schema + board gate
+2. **Permit expiration handling** — `expirationDate` exists but nothing
+   transitions a permit to `Expired` automatically; no renewal flow. (The
+   new Permits status filter already has an "Expired" option in the
+   dropdown — it just never matches anything yet, which is itself proof
+   this is unbuilt.)
+3. **Tow's actual statutory-deadline workflow** — only schema + board gate
    exist (design doc §4.12a). Lower urgency since board-gated anyway, but
    not done.
-5. **Reporting/analytics** — no violation trend or citation-count views.
-6. **PWA/offline support** — Field Lookup was designed with the
+4. **Reporting/analytics** — no violation trend or citation-count views.
+5. **PWA/offline support** — Field Lookup was designed with the
    phone-in-hand use case in mind but isn't installable or offline-capable.
-7. Cross-module dependencies, not strictly parking-scoped, but block real
+6. Cross-module dependencies, not strictly parking-scoped, but block real
    completeness: no shared Person store, no auth/role system anywhere.
 
 ## On the horizon
