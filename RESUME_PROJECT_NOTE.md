@@ -186,24 +186,26 @@ now through Vehicles/Permits/Citations tabs too (client-side search/filter,
 added 2026-08-05).
 Done: Staff/Officer roster with real validated identity everywhere.
 Done: PROTOTYPE document attachments.
+Done: Printable citation, sized for a mobile receipt printer (Zebra
+ZQ511/Brother-class device assumed) via the browser's normal print
+pipeline, not vendor-specific raw printer commands. Every citation
+(Administrative and Court) now gets its own citationNumber
+(FGSD-CIT-YYYY-#####) at issuance, separate from caseNumber (Court-filing
+only).
 
 Still open, roughly in priority order:
-1. **Printable citation document** — case-management has a real printable
-   Exclusion Notice; Citations here produces nothing a driver could be
-   handed or that could be filed/mailed. Real gap once Court-track ever
-   activates, and arguably useful for Administrative-track today too.
-2. **Permit expiration handling** — `expirationDate` exists but nothing
+1. **Permit expiration handling** — `expirationDate` exists but nothing
    transitions a permit to `Expired` automatically; no renewal flow. (The
-   new Permits status filter already has an "Expired" option in the
+   Permits status filter already has an "Expired" option in the
    dropdown — it just never matches anything yet, which is itself proof
    this is unbuilt.)
-3. **Tow's actual statutory-deadline workflow** — only schema + board gate
+2. **Tow's actual statutory-deadline workflow** — only schema + board gate
    exist (design doc §4.12a). Lower urgency since board-gated anyway, but
    not done.
-4. **Reporting/analytics** — no violation trend or citation-count views.
-5. **PWA/offline support** — Field Lookup was designed with the
+3. **Reporting/analytics** — no violation trend or citation-count views.
+4. **PWA/offline support** — Field Lookup was designed with the
    phone-in-hand use case in mind but isn't installable or offline-capable.
-6. Cross-module dependencies, not strictly parking-scoped, but block real
+5. Cross-module dependencies, not strictly parking-scoped, but block real
    completeness: no shared Person store, no auth/role system anywhere.
 
 ## On the horizon

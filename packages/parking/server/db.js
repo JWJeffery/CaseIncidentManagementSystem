@@ -242,6 +242,9 @@ async function initDB() {
     `ALTER TABLE parking_permits ADD COLUMN parkingZone TEXT`,
     `ALTER TABLE parking_permits ADD COLUMN issuedBy TEXT`,
     `ALTER TABLE vehicles ADD COLUMN enteredBy TEXT`,
+    `ALTER TABLE citations ADD COLUMN citationNumber TEXT`,
+    `ALTER TABLE citations ADD COLUMN printedAt TEXT`,
+    `ALTER TABLE citations ADD COLUMN printedBy TEXT`,
   ];
   for (const sql of migrations) {
     try { _db.run(sql); } catch (e) { /* column already exists -- fine */ }

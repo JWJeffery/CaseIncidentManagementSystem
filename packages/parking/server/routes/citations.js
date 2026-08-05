@@ -7,6 +7,26 @@ const { RecordsClassification, formatCaseNumber } = require('@fgsd/shared');
 const { requireFeature } = require('../featureGate');
 const { requireActiveStaff } = require('./staff');
 
+function esc(v) { return String(v ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch])); }
+
+// Citation Number generation, DB-backed (annual reset). Distinct from
+// caseNumber -- every issued citation gets one immediately, regardless of
+// track, because a driver needs something to reference the citation by
+// whether or not it ever escalates to a court filing. caseNumber remains
+// reserved for the Court-track filing moment specifically, per design doc
+// §4.12. Format deliberately different from caseNumber's FGSD-YYYY-#####
+// so the two are never visually confusable on a printed citation.
+function nextCitationNumber() {
+  const year = new Date().getFullYear();
+  const prefix = `FGSD-CIT-${year}-`;
+  const latest = db.prepare(
+    `SELECT citationNumber FROM citations WHERE citationNumber LIKE ? ORDER BY citationNumber DESC LIMIT 1`
+  ).get(`${prefix}%`);
+  const parsed = latest ? parseInt(latest.citationNumber.split('-').pop(), 10) : NaN;
+  const nextSeq = Number.isNaN(parsed) ? 1 : parsed + 1;
+  return `${prefix}${String(nextSeq).padStart(5, '0')}`;
+}
+
 // Case Number generation, DB-backed (annual reset), using @fgsd/shared's
 // formatter so the string shape matches design doc §3 exactly
 // (FGSD-YYYY-#####, 5-digit). NOTE: this queries this package's own
@@ -45,6 +65,127 @@ router.get('/:id', (req, res) => {
   const c = db.prepare('SELECT * FROM citations WHERE id = ?').get(req.params.id);
   if (!c) return res.status(404).json({ error: 'Not found' });
   res.json(c);
+});
+
+// GET /api/citations/:id/print
+// Print-ready HTML sized for a narrow mobile receipt printer (Zebra
+// ZQ511, Brother mobile printers, etc.) rather than a full 8.5x11 page.
+// Deliberately uses the browser's normal print pipeline (window.print())
+// instead of talking to the printer directly with vendor-specific raw
+// commands (Zebra ZPL, Brother's own command set) -- that keeps this
+// printer-agnostic. Whatever print driver/connector app the officer's
+// phone or tablet has installed for their specific printer handles the
+// actual output; this route only has to produce a page CSS-sized for
+// receipt-width paper (~80mm), same as any other print job.
+router.get('/:id/print', (req, res) => {
+  const citation = db.prepare('SELECT * FROM citations WHERE id = ?').get(req.params.id);
+  if (!citation) return res.status(404).send('Not found');
+  const vehicle = citation.vehicleId ? db.prepare('SELECT * FROM vehicles WHERE id = ?').get(citation.vehicleId) : null;
+  const code = db.prepare('SELECT * FROM violation_codes WHERE id = ?').get(citation.violationCodeId) || {};
+  const officer = db.prepare('SELECT * FROM staff WHERE id = ?').get(citation.enforcementOfficerId) || {};
+
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '';
+  const fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Citation ${citation.citationNumber || citation.id}</title>
+<style>
+  @page { size: 80mm auto; margin: 3mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Courier New', monospace; font-size: 11px; line-height: 1.4; color: #000; width: 74mm; padding: 4px; }
+  h1 { font-size: 13px; text-align: center; margin-bottom: 2px; }
+  .sub { text-align: center; font-size: 10px; margin-bottom: 8px; }
+  .rule { border-top: 1px dashed #000; margin: 6px 0; }
+  .row { display: flex; justify-content: space-between; }
+  .label { font-weight: bold; }
+  .section { margin-bottom: 6px; }
+  .footer { font-size: 9px; margin-top: 10px; }
+  .no-print { text-align: center; margin-top: 14px; }
+  .no-print button { font-size: 12px; padding: 6px 16px; }
+  @media print { .no-print { display: none; } }
+</style>
+</head>
+<body>
+  <h1>FOREST GROVE SCHOOL DISTRICT</h1>
+  <div class="sub">PARKING CITATION</div>
+  <div class="rule"></div>
+
+  <div class="section">
+    <div class="row"><span class="label">Citation #</span><span>${esc(citation.citationNumber || '(unassigned)')}</span></div>
+    <div class="row"><span class="label">Date</span><span>${esc(fmtDate(citation.dateIssued))}</span></div>
+    <div class="row"><span class="label">Time</span><span>${esc(fmtTime(citation.dateIssued))}</span></div>
+    <div class="row"><span class="label">Type</span><span>${esc(citation.citationType)}</span></div>
+  </div>
+  <div class="rule"></div>
+
+  <div class="section">
+    <div class="label">LOCATION</div>
+    <div>${esc(citation.location || '(not recorded)')}</div>
+  </div>
+  <div class="rule"></div>
+
+  ${vehicle ? `
+  <div class="section">
+    <div class="label">VEHICLE</div>
+    <div>${esc(vehicle.plate)} (${esc(vehicle.state)})</div>
+    <div>${esc(vehicle.year)} ${esc(vehicle.make)} ${esc(vehicle.model)}, ${esc(vehicle.color)}</div>
+  </div>
+  <div class="rule"></div>` : ''}
+
+  <div class="section">
+    <div class="label">VIOLATION</div>
+    <div>${esc(code.citation || '')}</div>
+    <div>${esc(code.shortLabel || '')}</div>
+    <div>${esc(code.violationClass || '')}</div>
+  </div>
+  <div class="rule"></div>
+
+  <div class="section">
+    <div class="label">ISSUING OFFICER</div>
+    <div>${esc(officer.name || '(unassigned)')}</div>
+    ${officer.dpsstNumber ? `<div>DPSST# ${esc(officer.dpsstNumber)}</div>` : ''}
+  </div>
+  <div class="rule"></div>
+
+  <div class="footer">
+    ${citation.citationType === 'Administrative'
+      ? 'This is an administrative citation issued under District parking rules. Contact District Public Safety with questions.'
+      : 'This citation may be filed with the applicable municipal or justice court under ORS 153.045. Contact District Public Safety with questions.'}
+  </div>
+
+  <div class="no-print">
+    <button onclick="window.print()">Print</button>
+  </div>
+  <script>window.onload = () => window.print();</script>
+</body>
+</html>`;
+
+  res.setHeader('Content-Type', 'text/html');
+  res.send(html);
+});
+
+// POST /api/citations/:id/mark-printed
+// Tracks that a citation was actually generated for printing and by
+// whom -- "opened for print" is the honest thing being tracked (a browser
+// can't reliably report back whether a print job actually completed or
+// was cancelled), same posture as attachments.js's honesty about what a
+// prototype file-delete can and can't audit.
+router.post('/:id/mark-printed', (req, res) => {
+  try {
+    const citation = db.prepare('SELECT * FROM citations WHERE id = ?').get(req.params.id);
+    if (!citation) return res.status(404).json({ error: 'Not found' });
+    const printer = requireActiveStaff(req.body.printedBy, 'printedBy');
+    const now = new Date().toISOString();
+    db.prepare('UPDATE citations SET printedAt = ?, printedBy = ?, updatedAt = ? WHERE id = ?')
+      .run(now, printer.id, now, req.params.id);
+    res.json({ ok: true, printedAt: now });
+  } catch (err) {
+    console.error('POST /api/citations/:id/mark-printed failed:', err);
+    res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Internal error marking citation printed.', detail: err.message });
+  }
 });
 
 // POST /api/citations
@@ -112,6 +253,7 @@ router.post('/', (req, res) => {
   const now = new Date().toISOString();
   const data = {
     id,
+    citationNumber: nextCitationNumber(),
     incidentNumber: incidentNumber || null,
     caseNumber: null, // assigned only when a Court citation is filed -- see /:id/file-with-court
     vehicleId: vehicleId || null,
@@ -130,14 +272,14 @@ router.post('/', (req, res) => {
     updatedAt: now,
   };
   db.prepare(`
-    INSERT INTO citations (id, incidentNumber, caseNumber, vehicleId, personId, violationCodeId,
+    INSERT INTO citations (id, citationNumber, incidentNumber, caseNumber, vehicleId, personId, violationCodeId,
       citationType, recordsClassification, enforcementOfficerId, location, dateIssued, status, notes,
       createdAt, updatedAt)
-    VALUES ($id, $incidentNumber, $caseNumber, $vehicleId, $personId, $violationCodeId,
+    VALUES ($id, $citationNumber, $incidentNumber, $caseNumber, $vehicleId, $personId, $violationCodeId,
       $citationType, $recordsClassification, $enforcementOfficerId, $location, $dateIssued, $status, $notes,
       $createdAt, $updatedAt)
   `).run(data);
-  res.json({ id, citationType: type, recordsClassification: data.recordsClassification });
+  res.json({ id, citationNumber: data.citationNumber, citationType: type, recordsClassification: data.recordsClassification });
   } catch (err) {
     console.error('POST /api/citations failed:', err);
     res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Internal error creating citation.', detail: err.message });

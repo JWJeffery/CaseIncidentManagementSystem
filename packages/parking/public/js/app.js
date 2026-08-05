@@ -426,7 +426,7 @@ function filterCitations() {
     if (q) {
       const code = state.violationCodes.find(vc => vc.id === c.violationCodeId) || {};
       const vehicle = state.vehicles.find(v => v.id === c.vehicleId) || {};
-      const haystack = [code.citation, code.shortLabel, vehicle.plate, c.caseNumber, c.personId].map(f => (f || '').toLowerCase());
+      const haystack = [code.citation, code.shortLabel, vehicle.plate, c.caseNumber, c.citationNumber, c.personId].map(f => (f || '').toLowerCase());
       if (!haystack.some(f => f.includes(q))) return false;
     }
     return true;
@@ -478,17 +478,23 @@ function renderCitations() {
           </select>
         </div>
       </div>
-      <table><thead><tr><th>Type</th><th>Classification</th><th>Violation</th><th>Vehicle</th><th>Status</th><th>Case #</th><th>Officer</th></tr></thead>
+      <table><thead><tr><th>Citation #</th><th>Type</th><th>Classification</th><th>Violation</th><th>Vehicle</th><th>Status</th><th>Case #</th><th>Officer</th><th>Print</th></tr></thead>
       <tbody>${filtered.map(c => {
         const code = state.violationCodes.find(vc => vc.id === c.violationCodeId) || {};
         const vehicle = state.vehicles.find(v => v.id === c.vehicleId) || {};
         return `<tr>
+          <td>${esc(c.citationNumber) || '—'}</td>
           <td>${esc(c.citationType)}</td><td>${badgeFor(c.recordsClassification)}</td>
           <td>${esc(code.citation)}</td><td>${esc(vehicle.plate)}</td>
-          <td>${esc(c.status)}</td><td>${esc(c.caseNumber) || '—'}</td>
+          <td>${esc(c.status)}</td>
+          <td>${esc(c.caseNumber) || '—'}</td>
           <td>${esc(staffName(c.enforcementOfficerId))}</td>
+          <td>
+            <button class="printCitationBtn secondary" data-cit="${c.id}" style="padding:3px 10px;font-size:0.8rem;">Print</button>
+            ${c.printedAt ? `<div style="font-size:0.7rem;color:var(--gray-4);margin-top:2px;">Printed ${new Date(c.printedAt).toLocaleString()} by ${esc(staffName(c.printedBy))}</div>` : ''}
+          </td>
         </tr>`;
-      }).join('') || `<tr><td colspan="7">${state.citations.length ? 'No citations match your filters.' : 'No citations yet.'}</td></tr>`}</tbody></table>
+      }).join('') || `<tr><td colspan="9">${state.citations.length ? 'No citations match your filters.' : 'No citations yet.'}</td></tr>`}</tbody></table>
     </div>`;
 }
 
@@ -702,10 +708,26 @@ function wireEvents() {
       const result = await api('/citations', { method: 'POST', body: JSON.stringify(body) });
       await loadAll();
       state.citationPrefill = null;
-      state.msg = { type: 'success', text: `Citation issued (${result.citationType}, ${result.recordsClassification}).` };
+      state.msg = { type: 'success', text: `Citation ${result.citationNumber} issued (${result.citationType}, ${result.recordsClassification}).` };
     } catch (err) { state.msg = { type: 'error', text: err.message }; }
     render();
   };
+
+  root.querySelectorAll('.printCitationBtn').forEach(btn => {
+    btn.onclick = async () => {
+      const citId = btn.dataset.cit;
+      const citation = state.citations.find(c => c.id === citId);
+      try {
+        // Defaults printedBy to the issuing officer -- the natural field
+        // workflow is the same officer issues and prints on the spot.
+        await api(`/citations/${citId}/mark-printed`, { method: 'POST', body: JSON.stringify({ printedBy: citation.enforcementOfficerId }) });
+        window.open(`/api/citations/${citId}/print`, '_blank');
+        await loadAll();
+        state.msg = { type: 'success', text: 'Citation opened for printing.' };
+      } catch (err) { state.msg = { type: 'error', text: err.message }; }
+      render();
+    };
+  });
 
   // --- Field Lookup ---
   const lookupForm = document.getElementById('lookupForm');
