@@ -18,6 +18,45 @@ router.get('/', (req, res) => {
   res.json(db.prepare(sql).all(...params));
 });
 
+// GET /api/vehicles/lookup?query=... -- field-use search: matches a plate
+// OR a permit number in one call, returns the vehicle plus its active
+// permit (if any) in a single combined payload. Designed for the
+// student-supervisor-with-a-phone use case: one search box, one round
+// trip, small payload -- not "pull the whole dataset and filter
+// client-side," which matters on a phone on a school Wi-Fi network.
+// Must be declared before GET /:id or Express would swallow "/lookup"
+// as an :id value.
+router.get('/lookup', (req, res) => {
+  const q = (req.query.query || '').trim();
+  if (!q) return res.status(400).json({ error: 'query is required.' });
+
+  // Try matching a permit number first (exact-ish, since permit numbers
+  // are structured), then fall back to a plate search (partial match,
+  // since an officer may only catch part of a plate or is unsure of exact
+  // formatting).
+  let vehicle = null;
+  const byPermit = db.prepare(
+    `SELECT v.* FROM vehicles v
+     JOIN parking_permits p ON p.vehicleId = v.id
+     WHERE p.permitNumber = ? ORDER BY p.issuedDate DESC LIMIT 1`
+  ).get(q);
+  if (byPermit) {
+    vehicle = byPermit;
+  } else {
+    vehicle = db.prepare(`SELECT * FROM vehicles WHERE plate LIKE ? ORDER BY createdAt DESC LIMIT 1`).get(`%${q}%`);
+  }
+
+  if (!vehicle) {
+    return res.json({ found: false, vehicle: null, permit: null });
+  }
+
+  const permit = db.prepare(
+    `SELECT * FROM parking_permits WHERE vehicleId = ? AND status = 'Active' ORDER BY issuedDate DESC LIMIT 1`
+  ).get(vehicle.id);
+
+  res.json({ found: true, vehicle, permit: permit || null });
+});
+
 // GET /api/vehicles/:id
 router.get('/:id', (req, res) => {
   const v = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);

@@ -135,6 +135,34 @@ async function initDB() {
     createdAt TEXT NOT NULL
   );`);
 
+  // NEW -- Permit Application. Self-registration workflow: a student/staff
+  // member submits their own info (same shape as the eventual Permit),
+  // and it sits Pending until staff review confirms it. Same pattern as
+  // Reunification's claimant-entry -> staff-approval workflow -- reused
+  // deliberately rather than inventing a new one. Approval creates the
+  // actual Vehicle + Permit records and links back here for audit trail.
+  // Document upload (license/insurance photos) is NOT implemented yet --
+  // see uploadNotes field and RESUME_PROJECT_NOTE.md for why (real
+  // storage-backend decision pending, not silently punted).
+  _db.run(`CREATE TABLE IF NOT EXISTS permit_applications (
+    id TEXT PRIMARY KEY,
+    personId TEXT NOT NULL,
+    registrantName TEXT NOT NULL, affiliateType TEXT,
+    studentIdNumber TEXT, employeeIdNumber TEXT,
+    vehiclePlate TEXT, vehicleState TEXT, vehicleVin TEXT,
+    vehicleMake TEXT, vehicleModel TEXT, vehicleYear TEXT, vehicleColor TEXT,
+    ownerName TEXT, ownerRelationship TEXT,
+    driverLicenseNumber TEXT, driverLicenseState TEXT,
+    insuranceCarrier TEXT, insurancePolicyNumber TEXT, insurancePolicyExpiration TEXT,
+    permitTypeRequested TEXT DEFAULT 'Student', parkingZoneRequested TEXT, schoolSite TEXT,
+    uploadNotes TEXT,
+    status TEXT DEFAULT 'Submitted',
+    submittedAt TEXT NOT NULL,
+    reviewedBy TEXT, reviewedAt TEXT, reviewNotes TEXT,
+    resultingVehicleId TEXT, resultingPermitId TEXT,
+    createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+  );`);
+
   // Idempotent migrations for the schema additions above -- lets an
   // existing dev database pick up new columns without requiring `rm -rf
   // data`. SQLite has no "ADD COLUMN IF NOT EXISTS"; each is wrapped so a

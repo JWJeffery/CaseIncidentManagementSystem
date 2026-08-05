@@ -46,7 +46,21 @@ handled as a first-class architectural concern, not an afterthought.
     (fields sourced from District DMV2U Protocol 010 §8). Has a working
     UI (`public/js/app.js`, tabbed single-page app). Runs on port 3001
     (`npm run parking` / `npm run parking:seed`) so it can run alongside
-    case-management (port 3000) without collision.
+    case-management (port 3000) without collision. Vehicle/Permit fields
+    match Board Policy JHFD's requirements (driver's license, current
+    registration, insurance/financial responsibility) plus real
+    campus-parking-system practice (permitType, parkingZone).
+    Same-day addition: **self-registration + staff-review workflow**
+    (`permit_applications` table / `routes/applications.js`, mirrors
+    Reunification's claimant-entry-then-staff-approval pattern) and a
+    **mobile field-lookup + quick-citation flow** (`GET
+    /api/vehicles/lookup`, matches plate or permit number in one round
+    trip; the "Field Lookup" tab is now the default tab on load, since
+    it's the primary field-use case for a student supervisor on a phone).
+    **Document upload (license/insurance photos) is explicitly NOT
+    implemented** — real decision pending on storage backend (local disk
+    vs. Google Cloud Storage), flagged rather than silently picked given
+    these are sensitive PII documents.
   - `packages/shared/` (`@fgsd/shared`) — Incident Number (lifetime
     sequence, `FGSD-#######`) / Case Number (annual reset,
     `FGSD-YYYY-#####`) formatting; records classification enum + disclosure
@@ -167,3 +181,13 @@ hadn't surfaced there yet.
    both use free-text `personId` strings with no cross-reference. This is
    the design doc's biggest unbuilt piece (§4.1) and blocks real
    cross-module linkage (e.g. an Exclusion check at citation time).
+6. **Document upload for Permit Applications** — needs a real decision
+   from Josh: prototype-grade local disk (throwaway, not for real PII) vs.
+   holding off until Google Cloud Storage is wired up for real. Don't
+   default to local disk for actual driver's license / insurance document
+   images without checking first — these are sensitive PII.
+7. No auth/role system exists anywhere in the monorepo. The Applications
+   approve/reject endpoints don't distinguish "a student submitting their
+   own application" from "staff reviewing it" beyond which API call is
+   made — anyone who can reach the API can call either. Real gap, flagged
+   in `applications.js`'s file header too.
