@@ -215,6 +215,27 @@ a safety net. Worth auditing `case-management`'s routes for the same
 exist there (all synchronous), which is why this specific failure mode
 hadn't surfaced there yet.
 
+Separately: **`INSERT OR IGNORE` provides zero deduplication when `id` is
+a freshly generated UUID.** `IGNORE` only suppresses a PRIMARY KEY
+collision — a new random UUID never collides with an existing row, so
+every seed-script insert "succeeds" as a brand-new row even on a second
+run. This silently doubled (tripled, on a third run) every location and
+demo person in `packages/identity/server/seed.js`, caught from Josh's own
+screenshots showing Locations (32) instead of 16. **Every seed script
+needs a real check-first pattern against an actual natural key** (name,
+VIN, a deliberate natural key like `synergyImportId`) before inserting,
+not just `INSERT OR IGNORE` on a table whose primary key is a UUID
+generated fresh every run. Parking's seed.js already had this right for
+vehicle creation (fixed earlier the same session, before this one was
+caught) — the fix wasn't applied consistently to identity's own seed.js
+at the time it was written, which is exactly how this slipped through.
+Fixed for real everywhere in that file now; verified by running the seed
+script three times in a row and confirming exact row counts via the live
+API, not just reading the console output. **Anyone with existing
+duplicate data from before this fix needs to manually delete
+`packages/identity/data/` and re-seed** — the fix prevents new
+duplicates, it doesn't retroactively clean up old ones.
+
 ## Standing operational rule (set 2026-08-05)
 
 **Finish each module completely before moving to the next one.** Applies
