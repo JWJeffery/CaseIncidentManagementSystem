@@ -21,18 +21,65 @@ const labels = {
   es: ['Información para reunificación','Nombre del estudiante','Maestro','Nombre de la persona que recoge al estudiante','Grado','Relación/parentesco con el estudiante que va a recoger','Firma','Para ser llenado por personal de la escuela','Tipo de documento/comprobante de identificación','Contacto de emergencia confirmado (iniciales del miembro del personal)','Fecha/hora','Firma del miembro del personal','Enviar la parte superior con el/la Reunificador/a para recoger al estudiante','Persona que recoge al estudiante','HORA','INICIALES']
 };
 
+// Project-wide status panel. This dashboard used to cover Reunification
+// only; it now reflects the whole FGSD Public Safety RMS monorepo, since
+// Reunification's app shell is where the team actually looks at it.
+// Shape: [color, module, title, detail]
+// Keep this in sync manually for now -- see RESUME_PROJECT_NOTE.md at the
+// repo root for the authoritative project status if this drifts.
 const dashboardItems = [
-  ['green','Card-first workflow','Claimant manually completes the card before SIS match.'],
-  ['green','Bilingual card','English and Spanish card labels are present.'],
-  ['green','Reunifier terminology','Operational handoff uses reunifier language.'],
-  ['green','Tested workflow module','UI workflow now uses the same transition module covered by automated tests.'],
-  ['yellow','SIS import adapter','CSV import adapter is wired; real district export still needs field audit.'],
-  ['yellow','Staff verification','Review, approval, rejection, and evidence preview are present but not role-secured.'],
-  ['yellow','Name comparison','Manual evidence name entry is compared to claimant name; OCR provider is not wired.'],
-  ['yellow','Export record','JSON export exists; retention policy and server storage are not built.'],
-  ['red','Authentication','No staff login, roles, or access controls yet.'],
-  ['red','Persistent incident storage','Browser prototype does not persist incident data.'],
-  ['red','Real OCR integration','Camera capture preview exists; automated OCR is not integrated.']
+  // --- Reunification ---
+  ['green','Reunification','Card-first workflow','Claimant manually completes the card before SIS match.'],
+  ['green','Reunification','Bilingual card','English and Spanish card labels are present.'],
+  ['green','Reunification','Reunifier terminology','Operational handoff uses reunifier language.'],
+  ['green','Reunification','Tested workflow module','UI workflow uses the same transition module covered by automated tests (npm run reunification:test).'],
+  ['yellow','Reunification','SIS import adapter','CSV import adapter is wired; real district Synergy export still needs field audit.'],
+  ['yellow','Reunification','Staff verification','Review, approval, rejection, and evidence preview are present but not role-secured.'],
+  ['yellow','Reunification','Name comparison','Manual evidence name entry is compared to claimant name; OCR provider is not wired.'],
+  ['yellow','Reunification','Export record','JSON export exists; retention policy and server storage are not built.'],
+  ['red','Reunification','Authentication','No staff login, roles, or access controls yet.'],
+  ['red','Reunification','Persistent incident storage','Browser prototype does not persist incident data.'],
+  ['red','Reunification','Real OCR integration','Camera capture preview exists; automated OCR is not integrated.'],
+  ['red','Reunification','Mobile/PWA field workflow','Reunifier handoff is a real field-in-hand role (iPad/phone); no PWA packaging or offline support yet.'],
+  ['red','Reunification','@fgsd/shared integration','No bundler in this package yet -- shared code (Person, Incident) is importable in tests but not in the live browser UI.'],
+
+  // --- Case Management ---
+  ['green','Case Management','Core schema','Case → Persons → Notes → Violations → Documents, backed by sql.js.'],
+  ['green','Case Management','KGB policy library','All 26 policy entries seeded.'],
+  ['green','Case Management','Exclusion Notice generation','Full exclusion and cease-and-desist notices print to PDF via browser.'],
+  ['yellow','Case Management','Google SSO / auth','Deferred to v2 per original scope.'],
+  ['yellow','Case Management','File/image attachments','Deferred to v2 per original scope.'],
+  ['red','Case Management','Real PDF export','Currently printable HTML only, not a generated PDF file.'],
+  ['red','Case Management','Audit log','Deferred to v2 per original scope.'],
+  ['red','Case Management','Multi-user sessions','Deferred to v2 per original scope.'],
+  ['red','Case Management','Exclusion as tracked status','Design doc §4.5b calls for live Active/Expired/Appealed tracking and a cross-module "is this person currently excluded" check -- only document generation exists today.'],
+  ['red','Case Management','Referral sub-records','Design doc §4.5a -- building hand-offs from a Case are not yet a formal record.'],
+
+  // --- Shared Platform (@fgsd/shared) ---
+  ['green','Shared Platform','Monorepo structure','case-management, reunification, and shared now live in one repo with npm workspaces.'],
+  ['green','Shared Platform','Incident / Case numbering','Lifetime Incident Numbers (FGSD-#######) and annual-reset Case Numbers (FGSD-YYYY-#####), per design doc §3.'],
+  ['green','Shared Platform','Records classification enum','LEU / Education / Employee / Court classifications + disclosure log helper, per design doc §5.'],
+  ['green','Shared Platform','Board-gated feature flags','Court-track Citation and Tow are hardcoded OFF pending actual board adoption of proposed Policy ECD.'],
+  ['yellow','Shared Platform','Central counter service','Reference implementation is in-memory only; needs a real DB-backed counter before any module goes to production.'],
+  ['red','Shared Platform','Person / Import shared schema','Designed in the data model doc; not yet implemented as shared code any module actually calls.'],
+  ['red','Shared Platform','Cross-module Incident linkage','No module currently creates or links to a real Incident record -- each still operates independently.'],
+
+  // --- Already Deployed / Adjacent ---
+  ['green','AAR','AAR / Report of Emergency Drill form','Deployed via Google Apps Script + Sheets backend; live, in use, separate from this monorepo by design.'],
+
+  // --- Planned Modules, Not Started ---
+  ['red','Planned','Injury Report module',"Student/staff split (different legal frame -- FERPA/LEU vs. workers' comp) not started."],
+  ['red','Planned','Vehicle / Parking Permit','Not started -- formalizes the current parking-permit spreadsheet.'],
+  ['red','Planned','Field Contact','Not started -- lightweight record for stop-and-ID events currently untracked.'],
+  ['yellow','Planned','Citation (Administrative track)','Designed (design doc §4.12); not built.'],
+  ['red','Planned','Citation (Court track)','Designed; board-gated OFF pending ECD adoption (ORS 153.045 court citations).'],
+  ['red','Planned','Tow subsystem','Designed (design doc §4.12a, full statutory-deadline workflow); board-gated OFF pending ECD adoption.'],
+
+  // --- Governance / Doctrine ---
+  ['green','Governance','LEU/FERPA classification framework','OAR 581-021-0225 / 34 CFR 99.8 authorization and storage-boundary rules are settled and documented.'],
+  ['green','Governance','DMV2U Query Log spec','Fields sourced directly from District DMV2U Protocol (010) §8 -- not invented.'],
+  ['yellow','Governance','ECD vs. JHFD scope conflict',"Administrative-citation eligibility differs between the two governing documents -- flagged, unresolved, DSC's call."],
+  ['yellow','Governance','Board adoption of ECD','Proposed, not yet before the board. Timeline unknown.']
 ];
 
 const state = {
@@ -75,14 +122,33 @@ function resetCard() {
   renderShell();
 }
 
-function dashboardCounts() {
-  return dashboardItems.reduce((acc, item) => { acc[item[0]] += 1; return acc; }, { green: 0, yellow: 0, red: 0 });
+function dashboardCounts(items = dashboardItems) {
+  return items.reduce((acc, item) => { acc[item[0]] += 1; return acc; }, { green: 0, yellow: 0, red: 0 });
+}
+
+function dashboardIcon(color) { return color === 'green' ? '🟩' : color === 'yellow' ? '🟨' : '🟥'; }
+
+// Preserve first-seen module order (Reunification, Case Management, Shared
+// Platform, AAR, Planned, Governance) rather than alphabetizing, so the
+// dashboard reads roughly in the order the project itself grew.
+function dashboardModules() {
+  const seen = [];
+  for (const [, module] of dashboardItems) {
+    if (!seen.includes(module)) seen.push(module);
+  }
+  return seen;
 }
 
 function renderDashboard() {
-  const counts = dashboardCounts();
-  const activeGate = 'Active gate: audit a real district SIS export against the CSV import adapter, then replace manual evidence-name entry with OCR.';
-  return `<section class="box dashboard"><h2>Project Dashboard</h2><p>Green = audited/verified/closed. Yellow = present but unaudited or incomplete. Red = not started or blocked.</p><div class="dashCounts"><b class="green">🟩 ${counts.green} Green</b><b class="yellow">🟨 ${counts.yellow} Yellow</b><b class="red">🟥 ${counts.red} Red</b></div><p class="warn">${safe(activeGate)}</p><div class="dashGrid">${dashboardItems.map(([color,title,detail]) => `<article class="dashCard ${color}"><h3>${color === 'green' ? '🟩' : color === 'yellow' ? '🟨' : '🟥'} ${safe(title)}</h3><p>${safe(detail)}</p></article>`).join('')}</div></section>`;
+  const overall = dashboardCounts();
+  const activeGate = "Active gate: resolve the reunification browser-bundler question and the ECD/JHFD administrative-citation scope conflict -- both are blocking downstream work and are the DSC's call, not a build task.";
+  const modules = dashboardModules();
+  const moduleSections = modules.map(module => {
+    const items = dashboardItems.filter(([, m]) => m === module);
+    const counts = dashboardCounts(items);
+    return `<details class="dashModule" open><summary><b>${safe(module)}</b> <span class="dashModuleCounts">🟩 ${counts.green} · 🟨 ${counts.yellow} · 🟥 ${counts.red}</span></summary><div class="dashGrid">${items.map(([color,,title,detail]) => `<article class="dashCard ${color}"><h3>${dashboardIcon(color)} ${safe(title)}</h3><p>${safe(detail)}</p></article>`).join('')}</div></details>`;
+  }).join('');
+  return `<section class="box dashboard"><h2>Project Dashboard</h2><p>Whole-system status across the FGSD Public Safety RMS monorepo (Reunification, Case Management, shared platform, planned modules, and governance) -- not Reunification alone. Green = audited/verified/closed. Yellow = present but unaudited or incomplete. Red = not started or blocked.</p><div class="dashCounts"><b class="green">🟩 ${overall.green} Green</b><b class="yellow">🟨 ${overall.yellow} Yellow</b><b class="red">🟥 ${overall.red} Red</b></div><p class="warn">${safe(activeGate)}</p>${moduleSections}</section>`;
 }
 
 function renderImportPanel() {
