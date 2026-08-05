@@ -1,6 +1,6 @@
 // public/js/app.js
 const root = document.getElementById('app-root');
-let state = { tab: 'lookup', vehicles: [], permits: [], permitTypes: [], applications: [], attachmentsByRecord: {}, staff: [], schoolYear: null, violationCodes: [], citations: [], tows: [], dmvLog: [], msg: null, lookupResult: null, citationPrefill: null, vehicleFilter: { search: '' }, permitFilter: { search: '', status: '', permitType: '' }, citationFilter: { search: '', status: '', citationType: '' }, _focusId: null, _focusPos: null };
+let state = { tab: 'lookup', vehicles: [], permits: [], permitTypes: [], applications: [], attachmentsByRecord: {}, staff: [], schoolYear: null, violationCodes: [], citations: [], tows: [], dmvLog: [], msg: null, lookupResult: null, citationPrefill: null, vehicleFilter: { search: '' }, permitFilter: { search: '', status: '', permitType: '' }, citationFilter: { search: '', status: '', citationType: '' }, reportFilter: { from: '', to: '' }, reports: { citations: null, permits: null, tows: null }, _focusId: null, _focusPos: null };
 
 async function api(path, opts) {
   const res = await fetch(`/api${path}`, {
@@ -71,6 +71,22 @@ async function loadAll() {
   const pending = applications.filter(a => a.status === 'Submitted' || a.status === 'Under Review');
   const lists = await Promise.all(pending.map(a => loadAttachments('PermitApplication', a.id)));
   pending.forEach((a, i) => { state.attachmentsByRecord[a.id] = lists[i]; });
+}
+
+// Reports are loaded lazily (only when the Reports tab is actually
+// opened, or its date filter changes) rather than bundled into loadAll()
+// -- no reason to hit three aggregation queries on every page load if the
+// person viewing Field Lookup never looks at Reports this session.
+async function loadReports() {
+  const { from, to } = state.reportFilter;
+  const q = [];
+  if (from) q.push(`from=${encodeURIComponent(from)}`);
+  if (to) q.push(`to=${encodeURIComponent(to)}`);
+  const qs = q.length ? `?${q.join('&')}` : '';
+  const [citations, permits, tows] = await Promise.all([
+    api(`/reports/citations${qs}`), api('/reports/permits'), api('/reports/tows'),
+  ]);
+  state.reports = { citations, permits, tows };
 }
 
 function badgeFor(classification) {
@@ -715,6 +731,86 @@ function renderStaff() {
     </div>`;
 }
 
+// Lightweight proportional bar visualization -- plain CSS, no charting
+// library, consistent with the rest of this app having no bundler. Bar
+// width is relative to the largest count in the group being rendered.
+function barList(items, labelFn, countFn) {
+  if (!items || !items.length) return '<p style="color:var(--gray-4);font-size:0.85rem;">No data for this range.</p>';
+  const max = Math.max(...items.map(countFn));
+  return `<div>${items.map(item => {
+    const count = countFn(item);
+    const pct = max > 0 ? Math.round((count / max) * 100) : 0;
+    return `<div style="margin-bottom:6px;">
+      <div style="display:flex;justify-content:space-between;font-size:0.85rem;"><span>${esc(labelFn(item))}</span><b>${count}</b></div>
+      <div style="background:var(--gray-1);border-radius:4px;height:8px;"><div style="background:var(--navy);width:${pct}%;height:8px;border-radius:4px;"></div></div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderReports() {
+  const r = state.reports;
+  const f = state.reportFilter;
+  return `
+    <div class="card">
+      <h2>Date Range</h2>
+      <p style="margin-bottom:10px;color:var(--gray-4);font-size:0.85rem;">Applies to the Citations breakdowns below. Permits and Tows are always a current snapshot.</p>
+      <form id="reportFilterForm" class="form-grid" style="grid-template-columns:1fr 1fr 1fr;align-items:end;">
+        <div><label>From</label><input name="from" type="date" value="${esc(f.from)}"></div>
+        <div><label>To</label><input name="to" type="date" value="${esc(f.to)}"></div>
+        <div><button type="submit">Apply</button></div>
+      </form>
+    </div>
+
+    ${!r.citations ? '<div class="card"><p>Loading reports...</p></div>' : `
+    <div class="card">
+      <h2>Citations (${r.citations.total} total in range)</h2>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+        <div>
+          <h3 style="font-size:0.9rem;margin-bottom:8px;">By Type</h3>
+          ${barList(r.citations.byType, i => i.citationType, i => i.count)}
+        </div>
+        <div>
+          <h3 style="font-size:0.9rem;margin-bottom:8px;">By Status</h3>
+          ${barList(r.citations.byStatus, i => i.status, i => i.count)}
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Citations by Violation</h2>
+      ${barList(r.citations.byViolation, i => `${i.citation} -- ${i.shortLabel}`, i => i.count)}
+    </div>
+    <div class="card">
+      <h2>Citations by Month</h2>
+      ${barList(r.citations.byMonth, i => i.month, i => i.count)}
+    </div>
+    <div class="card">
+      <h2>Citations by Officer</h2>
+      ${barList(r.citations.byOfficer, i => i.officerName, i => i.count)}
+    </div>
+    <div class="card">
+      <h2>Top Locations (up to 10)</h2>
+      <p style="color:var(--gray-4);font-size:0.8rem;margin-bottom:8px;">Location is free text entered per citation, not a controlled zone list -- this is "most common exact strings," a rough signal.</p>
+      ${barList(r.citations.byLocation, i => i.location, i => i.count)}
+    </div>
+    <div class="card">
+      <h2>Permits (${r.permits.total} total, current snapshot)</h2>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+        <div>
+          <h3 style="font-size:0.9rem;margin-bottom:8px;">By Type</h3>
+          ${barList(r.permits.byType, i => i.permitType, i => i.count)}
+        </div>
+        <div>
+          <h3 style="font-size:0.9rem;margin-bottom:8px;">By Status</h3>
+          ${barList(r.permits.byStatus, i => i.status, i => i.count)}
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Tows (${r.tows.total} total${r.tows.total ? `, ${r.tows.hazardCount} hazard` : ''})</h2>
+      ${barList(r.tows.byStatus, i => i.status, i => i.count)}
+    </div>`}`;
+}
+
 const TABS = [
   ['lookup', 'Field Lookup', renderLookup],
   ['vehicles', 'Vehicles', renderVehicles],
@@ -722,6 +818,7 @@ const TABS = [
   ['applications', 'Applications', renderApplications],
   ['citations', 'Citations', renderCitations],
   ['staff', 'Staff', renderStaff],
+  ['reports', 'Reports', renderReports],
   ['tows', 'Towing (gated)', renderTows],
   ['dmvLog', 'DMV2U Log', renderDmvLog],
   ['codes', 'Violation Codes', renderViolationCodes],
@@ -757,8 +854,25 @@ function render() {
 
 function wireEvents() {
   root.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.onclick = () => { state.tab = btn.dataset.tab; state.msg = null; render(); };
+    btn.onclick = async () => {
+      state.tab = btn.dataset.tab;
+      state.msg = null;
+      if (btn.dataset.tab === 'reports') {
+        render(); // show the loading state immediately
+        await loadReports();
+      }
+      render();
+    };
   });
+
+  const reportFilterForm = document.getElementById('reportFilterForm');
+  if (reportFilterForm) reportFilterForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(reportFilterForm));
+    state.reportFilter = { from: body.from || '', to: body.to || '' };
+    await loadReports();
+    render();
+  };
 
   // --- Search/filter wiring ---
   wireLiveSearch('vehicleSearchInput', state.vehicleFilter, 'search');

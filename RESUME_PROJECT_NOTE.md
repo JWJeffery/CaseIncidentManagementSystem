@@ -214,12 +214,20 @@ the school year, not an arbitrary date. Admin is prompted once a year
 (only when the configured date has actually lapsed, not on every visit)
 via a banner on the Permits tab. Explicit overrides on issuance/renewal
 still work (Visitor/Temporary permits needing a shorter window).
+Done: Reporting/analytics (`routes/reports.js`, real SQL GROUP BY
+aggregation) -- Citations by violation/type/status/month/officer/location
+(with an optional date-range filter), Permits by type/status, Tows by
+status, all in a new lazily-loaded Reports tab with plain-CSS bar
+visualization. This was the last strictly parking-specific item on the
+checklist.
 
 Still open, roughly in priority order:
-1. **Reporting/analytics** — no violation trend or citation-count views.
-2. **PWA/offline support** — Field Lookup was designed with the
+1. **PWA/offline support** — Field Lookup was designed with the
    phone-in-hand use case in mind but isn't installable or offline-capable.
-3. Cross-module dependencies, not strictly parking-scoped, but block real
+   This is more infrastructure than feature (service worker, manifest,
+   offline data strategy) — worth discussing scope with Josh before
+   starting, not just building blind.
+2. Cross-module dependencies, not strictly parking-scoped, but block real
    completeness: no shared Person store, no auth/role system anywhere.
 
 ## On the horizon
