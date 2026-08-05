@@ -1,16 +1,17 @@
 {
-  "name": "kgb-case-management",
-  "version": "1.0.0",
-  "description": "Forest Grove SD Case / Incident Management System",
-  "main": "server/index.js",
+  "name": "fgsd-public-safety-rms",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FGSD Public Safety Records Management System — monorepo. See README.md for structure and the design doc for the full architecture.",
+  "workspaces": [
+    "packages/shared",
+    "packages/case-management",
+    "packages/reunification"
+  ],
   "scripts": {
-    "start": "node server/index.js",
-    "dev": "node server/index.js",
-    "seed": "node server/seed.js"
-  },
-  "dependencies": {
-    "sql.js": "^1.12.0",
-    "express": "^4.18.2",
-    "uuid": "^9.0.0"
+    "case-management": "npm run start --workspace packages/case-management",
+    "case-management:seed": "npm run seed --workspace packages/case-management",
+    "reunification": "npm run start --workspace packages/reunification",
+    "reunification:test": "npm run test --workspace packages/reunification"
   }
 }

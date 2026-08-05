@@ -1,0 +1,7 @@
+{
+  "name": "@fgsd/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared Person/Incident/Case-numbering/records-classification model for the FGSD Public Safety RMS. Consumed by case-management, reunification, and future modules (injury, citation/parking).",
+  "main": "src/index.js"
+}

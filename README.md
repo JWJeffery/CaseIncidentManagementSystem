@@ -1,44 +1,73 @@
-# FGSD Case Management System
+# FGSD Public Safety Records Management System
 
-Forest Grove School District — Incident / Case Management System v1
+Monorepo for the unified FGSD Public Safety RMS. Formerly three separate
+repos/prototypes (this repo, `Reunification`, and the parking/citation
+module which doesn't exist yet) — consolidated here because the whole point
+of the project is one coherent system sharing one Person/Incident/records-
+classification model, not three tools that happen to be adjacent.
 
-## Codespaces / Local Startup
+See the working design doc (`FGSD_PublicSafety_RMS_DataModel_Draft.md`,
+shared separately with the District Safety Coordinator) for the full
+architecture, entity list, legal/FERPA/LEU classification rules, and
+identifier numbering scheme. This README covers repo structure only.
 
-```bash
-# 1. Install dependencies
-npm install
+## Structure
 
-# 2. Seed the database (run once, or to reset demo data)
-npm run seed
-
-# 3. Start the server
-npm start
+```
+packages/
+  shared/            @fgsd/shared — Person/Incident numbering, records
+                     classification, board-authority feature flags.
+                     Node/CommonJS. Consumed by case-management directly;
+                     see "Open question" below re: browser-side sharing.
+  case-management/   Express + sql.js backend. Case → Persons → Notes →
+                     Violations → Documents. Formerly the standalone
+                     CaseIncidentManagementSystem repo.
+  reunification/     Client-side reunification card workflow (claimant
+                     entry → SIS match/approval → reunifier handoff →
+                     release). Formerly the standalone Reunification repo.
+                     No backend currently — static files served directly.
 ```
 
-Open: http://localhost:3000
+## Running things
 
-If running in Codespaces, use the forwarded port URL shown in the Ports panel.
+```bash
+npm install                    # installs all three workspaces
+npm run case-management        # starts the case-management Express server
+npm run case-management:seed   # seeds case-management demo data
+npm run reunification          # starts reunification's static file server
+npm run reunification:test     # runs reunification's test suite
+```
 
-## What's implemented
+## Open architectural question — flagging, not deciding silently
 
-- Case List with search and status filter
-- Create Case (auto-numbered, all required fields)
-- Case Detail with tabs:
-  - Summary
-  - People (add/remove persons with full descriptor fields)
-  - Notes / Investigation Log (typed, color-coded by type)
-  - Violations / Findings (KGB policy picker with all 26 entries)
-  - Status / Disposition (live update)
-  - Documents (view generated notices)
-- Generate Exclusion Notice (full exclusion or C&D, prints to PDF via browser)
-- KGB policy library seeded with all 26 items
-- 3 demo cases with persons, notes, violations pre-loaded
+`packages/reunification` currently has **no build step**: `index.html`
+loads `src/main.js` directly as a browser ES module via
+`python3 -m http.server`. `packages/shared` is plain Node CommonJS.
 
-## Deferred (v2)
+That means `@fgsd/shared` is directly usable from `case-management`'s
+Express backend and from reunification's **Node-run tests**, but **not**
+from reunification's browser-side code as it exists today — browsers can't
+resolve a bare `@fgsd/shared` import without either a bundler (esbuild,
+Vite, etc.) or shared code published as a plain browser-loadable ES module
+file.
 
-- Google SSO / authentication
-- File/image attachments
-- PDF export (currently printable HTML)
-- Email notifications
-- Audit log
-- Multi-user sessions
+This needs an explicit decision before shared entities (Person, Incident,
+Field Contact, etc.) actually get used in Reunification's live UI, not
+just its tests. Reasonable options, not yet chosen:
+
+1. Add a lightweight bundler to `packages/reunification` (biggest change,
+   most standard long-term).
+2. Publish `@fgsd/shared`'s browser-relevant exports as a second,
+   dependency-free ESM file the browser can load directly (no bundler,
+   but two versions of the same logic to keep in sync).
+3. Keep Reunification's browser code independent of `@fgsd/shared` for now
+   and only share code at the API layer once Reunification gets a real
+   backend (which the design doc's data model implies it will eventually
+   need anyway, for concurrent multi-station live use during an event).
+
+## Board-gated features
+
+`packages/shared/src/featureFlags.js` gates any feature dependent on
+proposed Board Policy ECD (court-track citations, towing). These are **not
+board-approved**. They may be built, but must ship disabled by default.
+See that file's header comment before touching the flags.
