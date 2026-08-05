@@ -57,10 +57,8 @@ handled as a first-class architectural concern, not an afterthought.
     /api/vehicles/lookup`, matches plate or permit number in one round
     trip; the "Field Lookup" tab is now the default tab on load, since
     it's the primary field-use case for a student supervisor on a phone).
-    **Document upload (license/insurance photos) is explicitly NOT
-    implemented** — real decision pending on storage backend (local disk
-    vs. Google Cloud Storage), flagged rather than silently picked given
-    these are sensitive PII documents.
+    **Document upload (license/insurance photos) is now a labeled
+    PROTOTYPE** — see below, not glossed over as production-ready.
   - `packages/shared/` (`@fgsd/shared`) — Incident Number (lifetime
     sequence, `FGSD-#######`) / Case Number (annual reset,
     `FGSD-YYYY-#####`) formatting; records classification enum + disclosure
@@ -181,11 +179,22 @@ hadn't surfaced there yet.
    both use free-text `personId` strings with no cross-reference. This is
    the design doc's biggest unbuilt piece (§4.1) and blocks real
    cross-module linkage (e.g. an Exclusion check at citation time).
-6. **Document upload for Permit Applications** — needs a real decision
-   from Josh: prototype-grade local disk (throwaway, not for real PII) vs.
-   holding off until Google Cloud Storage is wired up for real. Don't
-   default to local disk for actual driver's license / insurance document
-   images without checking first — these are sensitive PII.
+6. **Document upload is a labeled PROTOTYPE, not production-ready** —
+   `packages/parking/server/routes/attachments.js` + `document_attachments`
+   table. Local disk storage, no encryption at rest, no access control, no
+   durable storage. A persistent amber banner appears on every tab of the
+   parking app saying so. Josh explicitly connected this to the much
+   bigger picture: injury reports, investigation files, and incident
+   reports involving real victims will eventually live in this system, so
+   this prototype was deliberately built generic (recordType/recordId,
+   not permit-specific) so the same schema/route shape can be reused for
+   those far more sensitive attachments later. **Before any real
+   confidential document ever gets uploaded to a deployed instance**, this
+   needs: a real storage decision (most likely Google Cloud Storage, given
+   the district's Workspace/Cloud environment), real access control (which
+   depends on the auth system that doesn't exist yet either), and probably
+   encryption at rest. Do not treat the prototype's existence as
+   permission to skip that work later.
 7. No auth/role system exists anywhere in the monorepo. The Applications
    approve/reject endpoints don't distinguish "a student submitting their
    own application" from "staff reviewing it" beyond which API call is

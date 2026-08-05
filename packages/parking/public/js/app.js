@@ -1,6 +1,6 @@
 // public/js/app.js
 const root = document.getElementById('app-root');
-let state = { tab: 'lookup', vehicles: [], permits: [], permitTypes: [], applications: [], violationCodes: [], citations: [], tows: [], dmvLog: [], msg: null, lookupResult: null, citationPrefill: null };
+let state = { tab: 'lookup', vehicles: [], permits: [], permitTypes: [], applications: [], attachmentsByRecord: {}, violationCodes: [], citations: [], tows: [], dmvLog: [], msg: null, lookupResult: null, citationPrefill: null };
 
 async function api(path, opts) {
   const res = await fetch(`/api${path}`, {
@@ -12,6 +12,22 @@ async function api(path, opts) {
   return data;
 }
 
+// PROTOTYPE upload helper -- no Content-Type header set deliberately, so
+// the browser sets the correct multipart boundary itself when body is a
+// FormData object. See server/routes/attachments.js's header comment for
+// what this prototype does NOT provide (encryption, access control,
+// durable storage).
+async function uploadFile(formData) {
+  const res = await fetch('/api/attachments', { method: 'POST', body: formData });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Upload failed (${res.status})`);
+  return data;
+}
+
+async function loadAttachments(recordType, recordId) {
+  return api(`/attachments?recordType=${encodeURIComponent(recordType)}&recordId=${encodeURIComponent(recordId)}`);
+}
+
 function esc(v) { return String(v ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch])); }
 
 async function loadAll() {
@@ -19,6 +35,12 @@ async function loadAll() {
     api('/vehicles'), api('/permits'), api('/permits/types'), api('/applications'), api('/violationCodes'), api('/citations'), api('/tows'), api('/dmvQueryLog'),
   ]);
   Object.assign(state, { vehicles, permits, permitTypes, applications, violationCodes, citations, tows, dmvLog });
+
+  // Prefetch attachments for every pending application so the review
+  // queue can show them without a per-card async render step.
+  const pending = applications.filter(a => a.status === 'Submitted' || a.status === 'Under Review');
+  const lists = await Promise.all(pending.map(a => loadAttachments('PermitApplication', a.id)));
+  pending.forEach((a, i) => { state.attachmentsByRecord[a.id] = lists[i]; });
 }
 
 function badgeFor(classification) {
@@ -184,6 +206,7 @@ function renderApplications() {
 }
 
 function renderApplicationRow(a) {
+  const attachments = state.attachmentsByRecord[a.id] || [];
   return `
     <div class="card" style="background:var(--gray-0);margin-bottom:10px;">
       <table>
@@ -194,6 +217,28 @@ function renderApplicationRow(a) {
         <tr><th>Insurance</th><td>${esc(a.insuranceCarrier)} -- ${esc(a.insurancePolicyNumber)}, expires ${esc(a.insurancePolicyExpiration)}</td></tr>
         <tr><th>Requested</th><td>${esc(a.permitTypeRequested)} permit, zone: ${esc(a.parkingZoneRequested) || '—'}</td></tr>
       </table>
+
+      <div style="margin-top:12px;padding:10px;border:1px dashed var(--gray-3);border-radius:var(--radius);">
+        <b style="font-size:0.85rem;">Supporting Documents (PROTOTYPE -- see banner above)</b>
+        <div style="margin:8px 0;">
+          ${attachments.length ? attachments.map(att => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:0.85rem;">
+              <span><a href="/api/attachments/${att.id}/file" target="_blank">${esc(att.documentType)}: ${esc(att.originalFilename)}</a> (${Math.round(att.fileSizeBytes/1024)} KB, by ${esc(att.uploadedBy)})</span>
+              <button class="deleteAttachmentBtn secondary" data-att="${att.id}" data-app="${a.id}" style="padding:2px 8px;font-size:0.8rem;">Remove</button>
+            </div>`).join('') : '<p style="font-size:0.85rem;color:var(--gray-4);">No documents uploaded yet.</p>'}
+        </div>
+        <form class="attachmentUploadForm" data-app="${a.id}" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">
+          <div><label style="font-size:0.75rem;">Document Type</label>
+            <select name="documentType" style="padding:5px;">
+              <option>Driver License</option><option>Insurance Card</option><option>Vehicle Registration</option><option>Other</option>
+            </select>
+          </div>
+          <div><label style="font-size:0.75rem;">Uploaded By</label><input name="uploadedBy" style="padding:5px;" required></div>
+          <div><label style="font-size:0.75rem;">File (JPG/PNG/PDF, max 10MB)</label><input type="file" name="file" accept="image/jpeg,image/png,image/webp,application/pdf" required></div>
+          <button type="submit" class="secondary">Upload</button>
+        </form>
+      </div>
+
       <div class="form-grid" style="margin-top:10px;">
         <div><label>Reviewer Name</label><input class="reviewerName" data-app="${a.id}"></div>
         <div><label>Review Notes</label><input class="reviewNotes" data-app="${a.id}"></div>
@@ -415,6 +460,12 @@ function render() {
   const tabButtons = TABS.map(([id, label]) => `<button class="tab-btn ${state.tab === id ? 'active' : ''}" data-tab="${id}">${label}</button>`).join('');
   const activeRenderer = TABS.find(([id]) => id === state.tab)[2];
   root.innerHTML = `
+    <div class="prototype-banner">
+      ⚠️ PROTOTYPE -- Document upload is a proof of concept only. Files are stored unencrypted with no
+      access control on local disk. Not suitable for real confidential records (injury reports, investigations,
+      driver license/insurance images, or anything involving real victims) until a production storage decision
+      is made and access control exists. Do not upload real student or staff documents into this environment.
+    </div>
     <div class="tabs">${tabButtons}</div>
     ${state.msg ? `<div class="msg ${state.msg.type}">${esc(state.msg.text)}</div>` : ''}
     ${activeRenderer()}
@@ -560,6 +611,40 @@ function wireEvents() {
         await api(`/applications/${appId}/reject`, { method: 'POST', body: JSON.stringify({ reviewedBy, reviewNotes }) });
         await loadAll();
         state.msg = { type: 'success', text: 'Application rejected.' };
+      } catch (err) { state.msg = { type: 'error', text: err.message }; }
+      render();
+    };
+  });
+
+  // --- PROTOTYPE document attachments ---
+  root.querySelectorAll('.attachmentUploadForm').forEach(form => {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const appId = form.dataset.app;
+      const fileInput = form.querySelector('input[type="file"]');
+      if (!fileInput.files.length) return;
+      const fd = new FormData();
+      fd.append('file', fileInput.files[0]);
+      fd.append('recordType', 'PermitApplication');
+      fd.append('recordId', appId);
+      fd.append('documentType', form.querySelector('select[name="documentType"]').value);
+      fd.append('uploadedBy', form.querySelector('input[name="uploadedBy"]').value);
+      try {
+        await uploadFile(fd);
+        state.attachmentsByRecord[appId] = await loadAttachments('PermitApplication', appId);
+        state.msg = { type: 'success', text: 'Document uploaded (prototype storage -- see banner).' };
+      } catch (err) { state.msg = { type: 'error', text: err.message }; }
+      render();
+    };
+  });
+
+  root.querySelectorAll('.deleteAttachmentBtn').forEach(btn => {
+    btn.onclick = async () => {
+      const appId = btn.dataset.app;
+      try {
+        await api(`/attachments/${btn.dataset.att}`, { method: 'DELETE' });
+        state.attachmentsByRecord[appId] = await loadAttachments('PermitApplication', appId);
+        state.msg = { type: 'success', text: 'Document removed.' };
       } catch (err) { state.msg = { type: 'error', text: err.message }; }
       render();
     };

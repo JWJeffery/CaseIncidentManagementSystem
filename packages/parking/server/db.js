@@ -163,6 +163,41 @@ async function initDB() {
     createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
   );`);
 
+  // ============================================================
+  // PROTOTYPE ONLY -- document_attachments
+  // ============================================================
+  // This table and its route (server/routes/attachments.js) are a
+  // PROOF OF CONCEPT for uploading supporting documents (currently:
+  // driver license / insurance photos for Permit Applications). It is
+  // deliberately generic (recordType/recordId, not tied to permits
+  // specifically) because the same pattern will be needed for far more
+  // sensitive material soon -- injury report documentation, investigation
+  // file attachments, incident reports involving real victims. Building
+  // it generically now means case-management can reuse this exact
+  // schema/route shape later instead of inventing a second one.
+  //
+  // What this prototype does NOT do, and must not be assumed to do:
+  //   - No encryption at rest (files sit as plain bytes on local disk)
+  //   - No access control on who can upload, view, or delete a file --
+  //     there is no auth system anywhere in this monorepo yet
+  //   - No virus/malware scanning
+  //   - No durable storage -- local disk in a Codespace is ephemeral
+  //   - No redaction, retention-schedule, or records-request workflow
+  // None of this is safe for real confidential records (real students'
+  // driver licenses, real injury details, real investigation files, real
+  // victim information) until a production storage decision is made
+  // (most likely Google Cloud Storage, given the district's Workspace/
+  // Cloud environment) and real access control exists. See
+  // RESUME_PROJECT_NOTE.md.
+  _db.run(`CREATE TABLE IF NOT EXISTS document_attachments (
+    id TEXT PRIMARY KEY,
+    recordType TEXT NOT NULL, recordId TEXT NOT NULL,
+    documentType TEXT, originalFilename TEXT NOT NULL,
+    storedFilename TEXT NOT NULL, mimeType TEXT, fileSizeBytes INTEGER,
+    uploadedBy TEXT, classification TEXT,
+    createdAt TEXT NOT NULL
+  );`);
+
   // Idempotent migrations for the schema additions above -- lets an
   // existing dev database pick up new columns without requiring `rm -rf
   // data`. SQLite has no "ADD COLUMN IF NOT EXISTS"; each is wrapped so a
