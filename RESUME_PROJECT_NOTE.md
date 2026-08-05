@@ -45,16 +45,26 @@ handled as a first-class architectural concern, not an afterthought.
     structure (lean canonical record + separate time-bound history
     records that reference it, rather than repeating identity data per
     module). No SSN collected — SIS ID covers both students and staff
-    (Josh confirmed staff carry SIS IDs too). Vehicle is VIN-anchored,
-    with plate/state and ownership as separate effective-dated history
-    (`server/effectiveDating.js`, tested — `tests/effectiveDating.test.js`).
-    Location file seeded with the real 16-site FGSD building directory
-    (some addresses intentionally left blank rather than guessed — see
-    seed.js comment). Has a real, working, minimal UI, not API-only.
-    **Explicitly Phase 1 only** — `case-management` and `parking` do NOT
-    yet consume this service; they still use their own free-text
-    personId/vehicle fields. Wiring that up is Phase 2, separate,
-    substantial work — not started.
+    (Josh confirmed staff carry SIS IDs too). **Vehicle is plate-first,
+    not VIN-first** — corrected same-day after Josh's direct pushback on
+    the original VIN-anchored design ("VINs are long and cumbersome").
+    Plate is required at vehicle creation; VIN is optional supplementary
+    data. The underlying plate/ownership history model (separate
+    time-bound records via `server/effectiveDating.js`, tested —
+    `tests/effectiveDating.test.js`) is unchanged and still real — an old
+    plate still resolves via lookup, it's just no longer the required/
+    primary field. Location file seeded with the real 16-site FGSD
+    building directory (some addresses intentionally left blank rather
+    than guessed — see seed.js comment). Has a real, working, minimal UI,
+    not API-only. **Explicitly Phase 1 only** — `case-management` and
+    `parking` do NOT yet consume this service; they still use their own
+    free-text personId/vehicle fields. Wiring that up is Phase 2,
+    separate, substantial work — not started. Decided: Phase 2 consumers
+    should use live queries against this service, not local caches (the
+    whole point collapses if each module keeps a stale copy) — the one
+    exception under consideration is a short-lived, size-capped cache
+    specifically for parking's Field Lookup, given its phone-in-a-lot,
+    possibly-flaky-wifi use case.
   - `packages/parking/` (added 2026-08-05) — Vehicle, Parking Permit,
     Violation Code Library (13 entries seeded from proposed Board Policy
     ECD §4(A)-(M)), Citation (two-track: Administrative enabled today,

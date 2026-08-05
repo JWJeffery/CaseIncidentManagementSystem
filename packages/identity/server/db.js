@@ -92,11 +92,21 @@ async function initDB() {
   // ============================================================
   // VEHICLE MASTER FILE
   // ============================================================
-  // Anchored on VIN, not plate -- the NCIC/LEDS pattern, and a real fix
-  // over parking's original Vehicle table, which conflated "the vehicle"
-  // and "its current plate" into one row with no history. A plate change
-  // or a vehicle getting sold and replated previously had no record of
-  // what came before.
+  // Plate-first, not VIN-first -- corrected from an earlier design pass
+  // that led with VIN. Josh's direction: VINs are 17 characters,
+  // cumbersome in the field, and not what an officer is actually looking
+  // at on a parked car; plate is the real-world primary identifier, VIN
+  // is optional supplementary data. See routes/vehicles.js's header
+  // comment for the full reasoning.
+  //
+  // The underlying history model is unchanged, and still earns its keep:
+  // plate/state is tracked as a separate, time-bound registration record
+  // (vehicle_registrations, below) rather than a column directly on
+  // vehicles, because a vehicle's plate can legitimately change (sold,
+  // replated, personalized plate) and that history should stay
+  // queryable, not silently overwritten. What changed is which field the
+  // everyday workflow treats as primary/required, not whether history
+  // exists.
   _db.run(`CREATE TABLE IF NOT EXISTS vehicles (
     id TEXT PRIMARY KEY,
     vin TEXT, make TEXT, model TEXT, year TEXT, color TEXT,

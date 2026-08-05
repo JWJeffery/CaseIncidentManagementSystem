@@ -139,7 +139,7 @@ function renderPersonDetail() {
 function filteredVehicles() {
   const q = state.vehicleSearch.trim().toLowerCase();
   if (!q) return state.vehicles;
-  return state.vehicles.filter(v => (v.vin || '').toLowerCase().includes(q));
+  return state.vehicles.filter(v => (v.vin || '').toLowerCase().includes(q) || (v.currentPlate || '').toLowerCase().includes(q));
 }
 
 function renderVehicles() {
@@ -148,16 +148,20 @@ function renderVehicles() {
   return `
     <div class="card">
       <h2>Add Vehicle</h2>
-      <p style="color:var(--gray-4);font-size:0.85rem;margin-bottom:10px;">Anchored on VIN, not plate -- plate/state and owner are tracked as separate history below, not overwritten on change.</p>
+      <p style="color:var(--gray-4);font-size:0.85rem;margin-bottom:10px;">
+        Plate-first: that's what's actually visible on a parked vehicle in the field. VIN is optional
+        supplementary data, added later if/when it becomes known (e.g. during a proper vehicle inspection).
+        Plate/owner changes are tracked as history, not overwritten -- see a vehicle's file for the full record.
+      </p>
       <form id="vehicleForm">
         <div class="form-grid">
-          <div><label>VIN</label><input name="vin"></div>
+          <div><label>Plate (required)</label><input name="plate" required></div>
+          <div><label>Plate State</label><input name="state" value="OR"></div>
           <div><label>Make</label><input name="make"></div>
           <div><label>Model</label><input name="model"></div>
           <div><label>Year</label><input name="year"></div>
           <div><label>Color</label><input name="color"></div>
-          <div><label>Initial Plate</label><input name="plate"></div>
-          <div><label>Plate State</label><input name="state" value="OR"></div>
+          <div><label>VIN (optional)</label><input name="vin" placeholder="Add if/when known"></div>
           <div><label>Initial Owner</label><select name="ownerPersonId"><option value="">-- none --</option>${personOptions}</select></div>
           <div><label>Owner Relationship</label><select name="ownerRelationship"><option>Self</option><option>Parent</option><option>Guardian</option><option>Other</option></select></div>
         </div>
@@ -167,12 +171,14 @@ function renderVehicles() {
     <div class="card">
       <h2>Vehicles (${filtered.length}${filtered.length !== state.vehicles.length ? ` of ${state.vehicles.length}` : ''})</h2>
       <div class="form-grid" style="margin-bottom:10px;">
-        <div><label>Search (VIN)</label><input id="vehicleSearchInput" value="${esc(state.vehicleSearch)}" placeholder="e.g. 1FADP3"></div>
+        <div><label>Search (plate or VIN)</label><input id="vehicleSearchInput" value="${esc(state.vehicleSearch)}" placeholder="e.g. DEMO123"></div>
       </div>
-      <table><thead><tr><th>VIN</th><th>Make/Model</th><th>Color</th></tr></thead>
+      <table><thead><tr><th>Plate</th><th>Make/Model</th><th>Color</th><th>VIN</th></tr></thead>
       <tbody>${filtered.map(v => `<tr class="clickableVehicleRow" data-vehicle="${v.id}" style="cursor:pointer;">
-        <td>${esc(v.vin) || '—'}</td><td>${esc(v.year)} ${esc(v.make)} ${esc(v.model)}</td><td>${esc(v.color)}</td>
-      </tr>`).join('') || `<tr><td colspan="3">${state.vehicles.length ? 'No vehicles match your search.' : 'No vehicles on file yet.'}</td></tr>`}</tbody></table>
+        <td>${esc(v.currentPlate) || '(none on file)'}${v.currentState ? ` (${esc(v.currentState)})` : ''}</td>
+        <td>${esc(v.year)} ${esc(v.make)} ${esc(v.model)}</td><td>${esc(v.color)}</td>
+        <td>${esc(v.vin) || '—'}</td>
+      </tr>`).join('') || `<tr><td colspan="4">${state.vehicles.length ? 'No vehicles match your search.' : 'No vehicles on file yet.'}</td></tr>`}</tbody></table>
     </div>
     ${state.selectedVehicleId ? renderVehicleDetail() : ''}
   `;
