@@ -7,6 +7,8 @@ const { RecordsClassification, formatCaseNumber } = require('@fgsd/shared');
 const { requireFeature } = require('../featureGate');
 const { requireActiveStaff } = require('./staff');
 const { getActiveValidPermitForVehicle } = require('./permits');
+const { identityFetch } = require('../identityClient');
+const { flatten: flattenVehicle } = require('./vehicles');
 
 function esc(v) { return String(v ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch])); }
 
@@ -78,10 +80,25 @@ router.get('/:id', (req, res) => {
 // phone or tablet has installed for their specific printer handles the
 // actual output; this route only has to produce a page CSS-sized for
 // receipt-width paper (~80mm), same as any other print job.
-router.get('/:id/print', (req, res) => {
+router.get('/:id/print', async (req, res) => {
   const citation = db.prepare('SELECT * FROM citations WHERE id = ?').get(req.params.id);
   if (!citation) return res.status(404).send('Not found');
-  const vehicle = citation.vehicleId ? db.prepare('SELECT * FROM vehicles WHERE id = ?').get(citation.vehicleId) : null;
+  // Vehicle master data now lives in the Identity Service (Phase 2) --
+  // fetched via the same flatten() shape parking's own vehicles.js proxy
+  // returns, so this route doesn't need its own separate flattening
+  // logic. A vehicle lookup failure (e.g. identity service down) prints
+  // the citation without vehicle details rather than failing the whole
+  // print -- an officer still needs the citation printed even if a
+  // dependency is briefly unreachable.
+  let vehicle = null;
+  if (citation.vehicleId) {
+    try {
+      const raw = await identityFetch(`/api/vehicles/${citation.vehicleId}`);
+      vehicle = flattenVehicle(raw);
+    } catch (err) {
+      console.warn(`Citation print: could not fetch vehicle ${citation.vehicleId} from Identity Service:`, err.message);
+    }
+  }
   const code = db.prepare('SELECT * FROM violation_codes WHERE id = ?').get(citation.violationCodeId) || {};
   const officer = db.prepare('SELECT * FROM staff WHERE id = ?').get(citation.enforcementOfficerId) || {};
 

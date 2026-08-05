@@ -33,14 +33,34 @@ async function initDB() {
 
   _db.run('PRAGMA foreign_keys = ON;');
 
-  // Design doc §4.10 — Vehicle. selfReported vs. dmvVerified provenance
-  // split, same pattern as Person/Synergy staleness tracking.
+  // Design doc §4.10 — Vehicle. AS OF PHASE 2 (2026-08-05), this table is
+  // DEPRECATED and no longer written to by any route -- vehicle master
+  // data (plate, VIN, make/model/color, ownership) now lives in
+  // packages/identity, and parking's routes/vehicles.js proxies to it
+  // (see server/identityClient.js). This CREATE TABLE is left in place
+  // (harmless, unused) rather than dropped, since sql.js DDL drops on a
+  // live file are an unnecessary risk for zero benefit -- nothing reads
+  // or writes this table anymore. Do not add new code that queries it.
   _db.run(`CREATE TABLE IF NOT EXISTS vehicles (
     id TEXT PRIMARY KEY, plate TEXT, state TEXT, vin TEXT,
     make TEXT, model TEXT, year TEXT, color TEXT,
     ownerPersonId TEXT, ownerName TEXT, ownerRelationship TEXT,
     selfReported INTEGER DEFAULT 1, dmvVerified INTEGER DEFAULT 0,
     dmvVerifiedAt TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+  );`);
+
+  // NEW (Phase 2) -- vehicle_dmv_status. The only vehicle-related data
+  // that's genuinely parking's own concern, not identity's: whether a
+  // vehicle's info is self-reported vs. DMV2U-verified, and who entered
+  // it locally. Keyed by the IDENTITY SERVICE's vehicle id (an opaque
+  // foreign key into a different service's database -- there's no way
+  // for sql.js to enforce that relationship across services, so it's
+  // enforced at the application layer in routes/vehicles.js instead).
+  _db.run(`CREATE TABLE IF NOT EXISTS vehicle_dmv_status (
+    identityVehicleId TEXT PRIMARY KEY,
+    selfReported INTEGER DEFAULT 1, dmvVerified INTEGER DEFAULT 0,
+    dmvVerifiedAt TEXT, enteredBy TEXT,
+    createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
   );`);
 
   // Design doc §4.11 — Parking Permit. Formalizes the current spreadsheet.

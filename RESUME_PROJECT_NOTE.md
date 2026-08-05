@@ -56,11 +56,29 @@ handled as a first-class architectural concern, not an afterthought.
     primary field. Location file seeded with the real 16-site FGSD
     building directory (some addresses intentionally left blank rather
     than guessed — see seed.js comment). Has a real, working, minimal UI,
-    not API-only. **Explicitly Phase 1 only** — `case-management` and
-    `parking` do NOT yet consume this service; they still use their own
-    free-text personId/vehicle fields. Wiring that up is Phase 2,
-    separate, substantial work — not started. Decided: Phase 2 consumers
-    should use live queries against this service, not local caches (the
+    not API-only.
+
+    **Phase 2 (vehicle wiring): DONE for `parking`, not started for
+    `case-management`.** `parking`'s own `vehicles` table is now
+    deprecated (left in db.js, unused). `routes/vehicles.js` is a proxy +
+    flattener over Identity's API (`server/identityClient.js`, Node's
+    built-in fetch, server-to-server — browser never calls Identity
+    directly, no CORS question, parking's frontend URL contract unchanged).
+    Response is flattened back to the flat shape the frontend already
+    expected (plate/state/ownerName directly on the object), which is why
+    the frontend needed almost no changes. New `vehicle_dmv_status` table
+    holds the only vehicle data that's genuinely parking's own concern
+    (selfReported/dmvVerified/enteredBy), keyed by Identity's vehicle id.
+    `applications.js`'s approve() now creates the vehicle in Identity, not
+    locally. `citations.js`'s print route fetches from Identity too (the
+    one place outside vehicles.js that had touched the local table).
+    `seed.js` now requires Identity to be seeded and running first — a
+    real new operational sequencing requirement, checked up front with a
+    clear error message rather than a confusing downstream failure.
+    Person wiring (parking's `personId` fields, still free text) is
+    NOT part of this — separate, later work, same as case-management's
+    vehicle/person wiring. Decided: Phase 2 consumers should use live
+    queries against this service, not local caches (the
     whole point collapses if each module keeps a stale copy) — the one
     exception under consideration is a short-lived, size-capped cache
     specifically for parking's Field Lookup, given its phone-in-a-lot,
@@ -282,19 +300,29 @@ is treated as fully "finished" in the cross-module sense.
    before either goes to production.
 3. Once Josh confirms the monorepo push is solid, he deletes the standalone
    Reunification repo to free a slot.
-4. **No shared Person store — Phase 1 now exists (`packages/identity`),
-   Phase 2 does not.** `parking` and `case-management` still use free-text
-   `personId` strings with no cross-reference to the new identity service.
-   This is now the concrete next step, not an abstract gap: wire at least
-   one consumer (probably `parking`'s Permits/Vehicles, since it's the
-   most complete module) to actually call `packages/identity`'s API
-   instead of its own free-text fields, then repeat for `case-management`.
-   Real design questions to resolve before starting: does each package
-   keep a local cache/copy of person data it references (risk: drift) or
-   always call out to the identity service live (risk: cross-service
-   latency/availability coupling)? How does a citation's `personId` (a
-   driver, not necessarily on file yet) relate to the identity service's
-   canonical Person record?
+4. **Identity wiring, remaining pieces.** `parking`'s Vehicle references
+   are done (see `packages/identity/` note above — Phase 2 vehicle wiring
+   complete, 2026-08-05). Still open:
+   - `parking`'s Person references (`personId` on Citation, Permit,
+     PermitApplication, Vehicle ownership fields left unset during
+     application approval) are still free text, not wired to Identity's
+     Person Master File. Same live-query decision applies once started.
+   - `case-management` has NOT been wired to Identity at all yet — neither
+     its Vehicle nor Person references. Worth doing its Vehicle wiring
+     next, following the same proxy+flatten pattern established in
+     parking's `routes/vehicles.js`, before starting Person wiring
+     anywhere (Person is the bigger, more sensitive lift — real names,
+     DOBs, physical descriptors — and should probably come last across
+     both modules, not module-by-module).
+   - Real design question still open for Person specifically: how does a
+     citation's or case's `personId` (someone who may not be on file yet
+     — a driver stopped for the first time, a visitor) relate to
+     Identity's canonical Person record? Does an "unknown person" get a
+     placeholder Identity record created on the spot, or does parking/
+     case-management keep tolerating a personId that doesn't resolve to
+     anything in Identity until a real file exists? This needs a real
+     answer before Person wiring starts, not an assumption baked in
+     partway through.
 5. **Document upload is a labeled PROTOTYPE, not production-ready** —
    `packages/parking/server/routes/attachments.js` + `document_attachments`
    table. Local disk storage, no encryption at rest, no access control, no

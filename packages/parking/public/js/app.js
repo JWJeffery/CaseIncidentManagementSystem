@@ -307,6 +307,12 @@ function renderVehicles() {
   return `
     <div class="card">
       <h2>Add Vehicle</h2>
+      <p style="color:var(--gray-4);font-size:0.85rem;margin-bottom:10px;">
+        Vehicle master data (plate, VIN, make/model/color, ownership) is now created in the Identity Service, not
+        stored locally here -- this form is a thin front end for that. Owner requires a real Identity Service
+        Person ID; there's no picker for that here yet (Person wiring across modules hasn't happened), so most
+        vehicles added here won't have an owner set until that exists.
+      </p>
       <form id="vehicleForm">
         <div class="form-grid">
           <div><label>Plate</label><input name="plate" required></div>
@@ -316,9 +322,10 @@ function renderVehicles() {
           <div><label>Make</label><input name="make"></div>
           <div><label>Model</label><input name="model"></div>
           <div><label>Color</label><input name="color"></div>
-          <div><label>Owner Person ID</label><input name="ownerPersonId" placeholder="No shared Person store yet -- free text"></div>
-          <div><label>Registered Owner Name</label><input name="ownerName" placeholder="May differ from driver -- e.g. a parent"></div>
-          <div><label>Owner Relationship to Driver</label>
+          <div><label>Owner Person ID (optional -- Identity Service Person ID)</label>
+            <input name="ownerPersonId" placeholder="Requires a real Identity Person -- not yet pickable from this UI">
+          </div>
+          <div><label>Owner Relationship</label>
             <select name="ownerRelationship">
               <option value="">-- select --</option>
               <option>Self</option><option>Parent</option><option>Guardian</option><option>Other</option>

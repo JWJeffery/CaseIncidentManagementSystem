@@ -33,7 +33,7 @@ function attachDetails(vehicle) {
   if (currentOwnership) {
     currentOwner = db.prepare('SELECT id, lastName, firstName, personType FROM persons WHERE id = ?').get(currentOwnership.personId) || null;
   }
-  return { ...vehicle, registrations, ownership, currentRegistration, currentOwner };
+  return { ...vehicle, registrations, ownership, currentRegistration, currentOwnership, currentOwner };
 }
 
 // GET /api/vehicles?search=  -- matches plate (current or historical) OR
@@ -45,7 +45,10 @@ router.get('/', (req, res) => {
   let sql = `
     SELECT v.*,
       (SELECT plate FROM vehicle_registrations WHERE vehicleId = v.id AND effectiveTo IS NULL ORDER BY effectiveFrom DESC LIMIT 1) AS currentPlate,
-      (SELECT state FROM vehicle_registrations WHERE vehicleId = v.id AND effectiveTo IS NULL ORDER BY effectiveFrom DESC LIMIT 1) AS currentState
+      (SELECT state FROM vehicle_registrations WHERE vehicleId = v.id AND effectiveTo IS NULL ORDER BY effectiveFrom DESC LIMIT 1) AS currentState,
+      (SELECT relationship FROM vehicle_ownership WHERE vehicleId = v.id AND effectiveTo IS NULL ORDER BY effectiveFrom DESC LIMIT 1) AS currentOwnerRelationship,
+      (SELECT p.lastName FROM vehicle_ownership vo JOIN persons p ON p.id = vo.personId WHERE vo.vehicleId = v.id AND vo.effectiveTo IS NULL ORDER BY vo.effectiveFrom DESC LIMIT 1) AS currentOwnerLastName,
+      (SELECT p.firstName FROM vehicle_ownership vo JOIN persons p ON p.id = vo.personId WHERE vo.vehicleId = v.id AND vo.effectiveTo IS NULL ORDER BY vo.effectiveFrom DESC LIMIT 1) AS currentOwnerFirstName
     FROM vehicles v
   `;
   const params = [];

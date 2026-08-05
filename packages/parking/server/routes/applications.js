@@ -17,6 +17,7 @@ const router = express.Router();
 const { db } = require('../db');
 const { v4: uuidv4 } = require('uuid');
 const { requireActiveStaff } = require('./staff');
+const { identityFetch } = require('../identityClient');
 
 const PERMIT_TYPES = [
   'Student', 'Faculty/Staff', 'Visitor', 'Vendor/Contractor',
@@ -117,7 +118,7 @@ router.post('/', (req, res) => {
 // creates the real Vehicle + Permit records from the application's data
 // and links back for audit trail (design doc's general pattern: track
 // provenance, don't just overwrite).
-router.post('/:id/approve', (req, res) => {
+router.post('/:id/approve', async (req, res) => {
   try {
     const app = db.prepare('SELECT * FROM permit_applications WHERE id = ?').get(req.params.id);
     if (!app) return res.status(404).json({ error: 'Not found' });
@@ -127,21 +128,27 @@ router.post('/:id/approve', (req, res) => {
     const reviewer = requireActiveStaff(req.body.reviewedBy, 'reviewedBy');
 
     const now = new Date().toISOString();
-    const vehicleId = uuidv4();
-    db.prepare(`
-      INSERT INTO vehicles (id, plate, state, vin, make, model, year, color,
-        ownerPersonId, ownerName, ownerRelationship, enteredBy,
-        selfReported, dmvVerified, dmvVerifiedAt, createdAt, updatedAt)
-      VALUES ($id, $plate, $state, $vin, $make, $model, $year, $color,
-        $ownerPersonId, $ownerName, $ownerRelationship, $enteredBy,
-        1, 0, NULL, $createdAt, $updatedAt)
-    `).run({
-      id: vehicleId, plate: app.vehiclePlate, state: app.vehicleState, vin: app.vehicleVin,
-      make: app.vehicleMake, model: app.vehicleModel, year: app.vehicleYear, color: app.vehicleColor,
-      ownerPersonId: app.personId, ownerName: app.ownerName || app.registrantName,
-      ownerRelationship: app.ownerRelationship || 'Self', enteredBy: reviewer.id,
-      createdAt: now, updatedAt: now,
+    // Vehicle master data now lives in the Identity Service (Phase 2) --
+    // creates it there instead of a local INSERT. NOTE: does not attempt
+    // to set an owner (ownerPersonId) here -- app.personId is a free-text
+    // string from before Person wiring exists, not a real Identity Person
+    // id, so there is nothing valid to point ownership at yet. The
+    // applicant's self-reported owner name/relationship still gets
+    // recorded, but in the Permit's own free-text ownershipInfo field
+    // below (parking's own concern), not as a fabricated identity
+    // ownership record.
+    const created = await identityFetch('/api/vehicles', {
+      method: 'POST',
+      body: JSON.stringify({
+        plate: app.vehiclePlate, state: app.vehicleState, vin: app.vehicleVin || '',
+        make: app.vehicleMake, model: app.vehicleModel, year: app.vehicleYear, color: app.vehicleColor,
+      }),
     });
+    const vehicleId = created.id;
+    db.prepare(`
+      INSERT INTO vehicle_dmv_status (identityVehicleId, selfReported, dmvVerified, dmvVerifiedAt, enteredBy, createdAt, updatedAt)
+      VALUES ($vehicleId, 1, 0, NULL, $enteredBy, $createdAt, $updatedAt)
+    `).run({ vehicleId, enteredBy: reviewer.id, createdAt: now, updatedAt: now });
 
     const permitId = uuidv4();
     const permitNumber = nextPermitNumber();

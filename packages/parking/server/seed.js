@@ -1,9 +1,29 @@
 // server/seed.js
 const { initDB, db } = require('./db');
 const { v4: uuidv4 } = require('uuid');
+const { identityFetch, IDENTITY_BASE_URL } = require('./identityClient');
 
 async function run() {
   await initDB();
+
+  // PHASE 2: vehicle master data lives in the Identity Service now, so
+  // seeding a demo vehicle means creating it there via HTTP -- which
+  // means the Identity Service must actually be running (and already
+  // seeded) before this script can succeed. That's a real, new
+  // operational sequencing requirement introduced by Phase 2, not
+  // glossed over: `cd packages/identity && npm run seed && npm start`
+  // (or `npm run identity:seed && npm run identity` from repo root, in a
+  // separate terminal) BEFORE running this script. Fails loudly with a
+  // clear message rather than silently seeding parking with no vehicles
+  // if identity isn't reachable.
+  try {
+    await identityFetch('/api/locations');
+  } catch (err) {
+    console.error(`\n❌ Cannot reach the Identity Service at ${IDENTITY_BASE_URL}.`);
+    console.error(`   Vehicle seeding requires it to be running. In a separate terminal:`);
+    console.error(`   npm run identity:seed && npm run identity\n`);
+    throw err;
+  }
 
   // Sourced directly from proposed Board Policy ECD §4(A)-(M) --
   // wording, offense names, and classes are the policy's own, not
@@ -59,14 +79,25 @@ async function run() {
   // depending on case-management's persons table (no shared Person store
   // exists yet -- see RESUME_PROJECT_NOTE.md / dashboard red items).
   // personId values here are placeholder strings, not real Person records.
-  const demoVehicleId = uuidv4();
+  // Vehicle itself, though, is real now -- created via the Identity
+  // Service's API (see comment above), not a local INSERT.
   const now = new Date().toISOString();
-  db.prepare(`INSERT OR IGNORE INTO vehicles (id, plate, state, vin, make, model, year, color,
-      ownerPersonId, ownerName, ownerRelationship, enteredBy,
-      selfReported, dmvVerified, dmvVerifiedAt, createdAt, updatedAt)
-    VALUES ($id, 'DEMO123', 'OR', '1FADP3F20EL123456', 'Ford', 'Focus', '2021', 'Blue',
-      'demo-person-1', 'Pat Demo (Parent)', 'Parent', $enteredBy, 1, 0, NULL, $now, $now)`)
-    .run({ id: demoVehicleId, now, enteredBy: demoStaffId });
+  // Identity's vehicle creation has no uniqueness constraint on plate --
+  // it will happily create a second vehicle with the same plate if
+  // asked. Check first (idempotent, matches every other seed script's
+  // INSERT OR IGNORE behavior) rather than create-then-catch, which
+  // would silently accumulate duplicate demo vehicles on repeated runs.
+  const existingDemo = await identityFetch('/api/vehicles/lookup?plate=DEMO123');
+  const demoVehicle = existingDemo.found
+    ? existingDemo.vehicle
+    : await identityFetch('/api/vehicles', {
+        method: 'POST',
+        body: JSON.stringify({ plate: 'DEMO123', state: 'OR', vin: '1FADP3F20EL123456', make: 'Ford', model: 'Focus', year: '2021', color: 'Blue' }),
+      });
+  const demoVehicleId = demoVehicle.id;
+  db.prepare(`INSERT OR IGNORE INTO vehicle_dmv_status (identityVehicleId, selfReported, dmvVerified, dmvVerifiedAt, enteredBy, createdAt, updatedAt)
+    VALUES ($id, 1, 0, NULL, $enteredBy, $now, $now)`)
+    .run({ id: demoVehicleId, enteredBy: demoStaffId, now });
 
   db.prepare(`INSERT OR IGNORE INTO parking_permits (id, personId, vehicleId, permitNumber, schoolSite,
       registrantName, affiliateType, studentIdNumber, employeeIdNumber,
@@ -87,13 +118,17 @@ async function run() {
   // Second demo vehicle with an already-expired permit -- makes the sweep
   // and renewal flow visible/testable immediately after seeding, rather
   // than needing to wait for a real permit to actually expire.
-  const expiredVehicleId = uuidv4();
-  db.prepare(`INSERT OR IGNORE INTO vehicles (id, plate, state, vin, make, model, year, color,
-      ownerPersonId, ownerName, ownerRelationship, enteredBy,
-      selfReported, dmvVerified, dmvVerifiedAt, createdAt, updatedAt)
-    VALUES ($id, 'EXPIRED1', 'OR', '2HGES16561H123456', 'Honda', 'Civic', '2019', 'Silver',
-      'demo-person-2', 'Alex Demo', 'Self', $enteredBy, 1, 0, NULL, $now, $now)`)
-    .run({ id: expiredVehicleId, now, enteredBy: demoStaffId });
+  const existingExpired = await identityFetch('/api/vehicles/lookup?plate=EXPIRED1');
+  const expiredVehicle = existingExpired.found
+    ? existingExpired.vehicle
+    : await identityFetch('/api/vehicles', {
+        method: 'POST',
+        body: JSON.stringify({ plate: 'EXPIRED1', state: 'OR', vin: '2HGES16561H123456', make: 'Honda', model: 'Civic', year: '2019', color: 'Silver' }),
+      });
+  const expiredVehicleId = expiredVehicle.id;
+  db.prepare(`INSERT OR IGNORE INTO vehicle_dmv_status (identityVehicleId, selfReported, dmvVerified, dmvVerifiedAt, enteredBy, createdAt, updatedAt)
+    VALUES ($id, 1, 0, NULL, $enteredBy, $now, $now)`)
+    .run({ id: expiredVehicleId, enteredBy: demoStaffId, now });
 
   db.prepare(`INSERT OR IGNORE INTO parking_permits (id, personId, vehicleId, permitNumber, schoolSite,
       registrantName, affiliateType, studentIdNumber, employeeIdNumber,
