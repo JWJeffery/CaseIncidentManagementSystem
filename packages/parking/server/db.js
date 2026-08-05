@@ -198,6 +198,28 @@ async function initDB() {
     createdAt TEXT NOT NULL
   );`);
 
+  // NEW -- Staff/Officer roster. Currently every "who did this" field in
+  // this module (Citation.enforcementOfficerId, PermitApplication.reviewedBy,
+  // Permit issuance) was free text -- no consistency, no validation, no
+  // real audit trail. This table makes those references real: a
+  // selectable roster instead of whatever a form field happened to have
+  // typed into it. Scoped to parking for now (not @fgsd/shared) because
+  // shared has no persistence layer yet -- see RESUME_PROJECT_NOTE.md.
+  // Built with the same portability intent as document_attachments: same
+  // shape should carry over cleanly to case-management later (it already
+  // has an identical need -- "Employee ID/DPSST" on the Exclusion Notice
+  // form, "createdBy"/"assignedTo" on Case).
+  _db.run(`CREATE TABLE IF NOT EXISTS staff (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    employeeIdNumber TEXT,
+    dpsstNumber TEXT,
+    role TEXT,
+    dmv2uAuthorized INTEGER DEFAULT 0,
+    active INTEGER DEFAULT 1,
+    createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+  );`);
+
   // Idempotent migrations for the schema additions above -- lets an
   // existing dev database pick up new columns without requiring `rm -rf
   // data`. SQLite has no "ADD COLUMN IF NOT EXISTS"; each is wrapped so a
@@ -218,6 +240,8 @@ async function initDB() {
     `ALTER TABLE parking_permits ADD COLUMN insurancePolicyExpiration TEXT`,
     `ALTER TABLE parking_permits ADD COLUMN permitType TEXT DEFAULT 'Student'`,
     `ALTER TABLE parking_permits ADD COLUMN parkingZone TEXT`,
+    `ALTER TABLE parking_permits ADD COLUMN issuedBy TEXT`,
+    `ALTER TABLE vehicles ADD COLUMN enteredBy TEXT`,
   ];
   for (const sql of migrations) {
     try { _db.run(sql); } catch (e) { /* column already exists -- fine */ }

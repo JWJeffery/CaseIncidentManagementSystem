@@ -5,6 +5,7 @@ const { db } = require('../db');
 const { v4: uuidv4 } = require('uuid');
 const { RecordsClassification, formatCaseNumber } = require('@fgsd/shared');
 const { requireFeature } = require('../featureGate');
+const { requireActiveStaff } = require('./staff');
 
 // Case Number generation, DB-backed (annual reset), using @fgsd/shared's
 // formatter so the string shape matches design doc §3 exactly
@@ -66,6 +67,15 @@ router.post('/', (req, res) => {
   if (!violationCodeId || !enforcementOfficerId) {
     return res.status(400).json({ error: 'violationCodeId and enforcementOfficerId are required.' });
   }
+
+  // enforcementOfficerId must be a real, active Staff record now -- not
+  // whatever string a form happened to have in it. Per ECD §2(D), a
+  // citation-issuing Enforcement Officer is a real, designated role, not
+  // just "anyone in Public Safety" -- this doesn't fully enforce that
+  // distinction (staff.role is free text, not a strict permission system,
+  // since there's still no auth anywhere in this monorepo), but it does
+  // guarantee the name on a citation traces back to a real roster entry.
+  const officer = requireActiveStaff(enforcementOfficerId, 'enforcementOfficerId');
 
   const type = citationType === 'Court' ? 'Court' : 'Administrative';
 
@@ -130,7 +140,7 @@ router.post('/', (req, res) => {
   res.json({ id, citationType: type, recordsClassification: data.recordsClassification });
   } catch (err) {
     console.error('POST /api/citations failed:', err);
-    res.status(500).json({ error: 'Internal error creating citation.', detail: err.message });
+    res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Internal error creating citation.', detail: err.message });
   }
 });
 

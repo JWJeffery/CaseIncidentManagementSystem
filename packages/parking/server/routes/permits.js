@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { v4: uuidv4 } = require('uuid');
+const { requireActiveStaff } = require('./staff');
 
 // Standard campus-parking-system permit categories. Each typically carries
 // different eligibility, pricing, and lot/zone assignment rules -- this is
@@ -69,9 +70,11 @@ router.get('/:id', (req, res) => {
 // no column-level encryption), which is worth flagging as a real gap
 // before this goes anywhere near production data, not glossed over.
 router.post('/', (req, res) => {
+  try {
   if (!req.body.personId || !req.body.vehicleId) {
     return res.status(400).json({ error: 'personId and vehicleId are required.' });
   }
+  const issuer = requireActiveStaff(req.body.issuedBy, 'issuedBy');
   const permitType = PERMIT_TYPES.includes(req.body.permitType) ? req.body.permitType : 'Student';
   const id = uuidv4();
   const now = new Date().toISOString();
@@ -93,6 +96,7 @@ router.post('/', (req, res) => {
     ownershipInfo: req.body.ownershipInfo || '',
     permitType,
     parkingZone: req.body.parkingZone || '',
+    issuedBy: issuer.id,
     issuedDate: req.body.issuedDate || now,
     expirationDate: req.body.expirationDate || null,
     status: req.body.status || 'Active',
@@ -104,16 +108,20 @@ router.post('/', (req, res) => {
       registrantName, affiliateType, studentIdNumber, employeeIdNumber,
       driverLicenseNumber, driverLicenseState,
       insuranceCarrier, insurancePolicyNumber, insurancePolicyExpiration,
-      ownershipInfo, permitType, parkingZone,
+      ownershipInfo, permitType, parkingZone, issuedBy,
       issuedDate, expirationDate, status, createdAt, updatedAt)
     VALUES ($id, $personId, $vehicleId, $permitNumber, $schoolSite,
       $registrantName, $affiliateType, $studentIdNumber, $employeeIdNumber,
       $driverLicenseNumber, $driverLicenseState,
       $insuranceCarrier, $insurancePolicyNumber, $insurancePolicyExpiration,
-      $ownershipInfo, $permitType, $parkingZone,
+      $ownershipInfo, $permitType, $parkingZone, $issuedBy,
       $issuedDate, $expirationDate, $status, $createdAt, $updatedAt)
   `).run(data);
   res.json({ id, permitNumber: data.permitNumber });
+  } catch (err) {
+    console.error('POST /api/permits failed:', err);
+    res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Internal error issuing permit.', detail: err.message });
+  }
 });
 
 // PATCH /api/permits/:id

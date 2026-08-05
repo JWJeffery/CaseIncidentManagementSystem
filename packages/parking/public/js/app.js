@@ -1,6 +1,6 @@
 // public/js/app.js
 const root = document.getElementById('app-root');
-let state = { tab: 'lookup', vehicles: [], permits: [], permitTypes: [], applications: [], attachmentsByRecord: {}, violationCodes: [], citations: [], tows: [], dmvLog: [], msg: null, lookupResult: null, citationPrefill: null };
+let state = { tab: 'lookup', vehicles: [], permits: [], permitTypes: [], applications: [], attachmentsByRecord: {}, staff: [], violationCodes: [], citations: [], tows: [], dmvLog: [], msg: null, lookupResult: null, citationPrefill: null };
 
 async function api(path, opts) {
   const res = await fetch(`/api${path}`, {
@@ -30,11 +30,26 @@ async function loadAttachments(recordType, recordId) {
 
 function esc(v) { return String(v ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch])); }
 
+// Shared dropdown builder -- every place identity used to be free text now
+// uses this, so the option list (and what counts as "active") is
+// consistent everywhere. Inactive staff are excluded by default since
+// they shouldn't be selectable for new actions, but see renderStaff() for
+// where they're still visible (roster management needs to show everyone).
+function staffOptions(selectedId, { includeInactive = false } = {}) {
+  const list = includeInactive ? state.staff : state.staff.filter(s => s.active);
+  return list.map(s => `<option value="${s.id}" ${selectedId === s.id ? 'selected' : ''}>${esc(s.name)}${s.role ? ` (${esc(s.role)})` : ''}${!s.active ? ' [INACTIVE]' : ''}</option>`).join('');
+}
+
+function staffName(id) {
+  const s = state.staff.find(st => st.id === id);
+  return s ? s.name : (id || '—');
+}
+
 async function loadAll() {
-  const [vehicles, permits, permitTypes, applications, violationCodes, citations, tows, dmvLog] = await Promise.all([
-    api('/vehicles'), api('/permits'), api('/permits/types'), api('/applications'), api('/violationCodes'), api('/citations'), api('/tows'), api('/dmvQueryLog'),
+  const [vehicles, permits, permitTypes, applications, staff, violationCodes, citations, tows, dmvLog] = await Promise.all([
+    api('/vehicles'), api('/permits'), api('/permits/types'), api('/applications'), api('/staff?includeInactive=true'), api('/violationCodes'), api('/citations'), api('/tows'), api('/dmvQueryLog'),
   ]);
-  Object.assign(state, { vehicles, permits, permitTypes, applications, violationCodes, citations, tows, dmvLog });
+  Object.assign(state, { vehicles, permits, permitTypes, applications, staff, violationCodes, citations, tows, dmvLog });
 
   // Prefetch attachments for every pending application so the review
   // queue can show them without a per-card async render step.
@@ -240,7 +255,7 @@ function renderApplicationRow(a) {
       </div>
 
       <div class="form-grid" style="margin-top:10px;">
-        <div><label>Reviewer Name</label><input class="reviewerName" data-app="${a.id}"></div>
+        <div><label>Reviewer</label><select class="reviewerName" data-app="${a.id}"><option value="">-- select --</option>${staffOptions()}</select></div>
         <div><label>Review Notes</label><input class="reviewNotes" data-app="${a.id}"></div>
       </div>
       <button class="approveBtn" data-app="${a.id}">Approve -- Issue Permit</button>
@@ -269,18 +284,22 @@ function renderVehicles() {
               <option>Self</option><option>Parent</option><option>Guardian</option><option>Other</option>
             </select>
           </div>
+          <div><label>Entered By (optional -- staff only)</label>
+            <select name="enteredBy"><option value="">-- n/a --</option>${staffOptions()}</select>
+          </div>
         </div>
         <button type="submit">Add Vehicle</button>
       </form>
     </div>
     <div class="card">
       <h2>Vehicles (${state.vehicles.length})</h2>
-      <table><thead><tr><th>Plate</th><th>State</th><th>Year/Make/Model</th><th>Color</th><th>Registered Owner</th><th>Provenance</th></tr></thead>
+      <table><thead><tr><th>Plate</th><th>State</th><th>Year/Make/Model</th><th>Color</th><th>Registered Owner</th><th>Provenance</th><th>Entered By</th></tr></thead>
       <tbody>${state.vehicles.map(v => `<tr>
         <td>${esc(v.plate)}</td><td>${esc(v.state)}</td><td>${esc(v.year)} ${esc(v.make)} ${esc(v.model)}</td><td>${esc(v.color)}</td>
         <td>${esc(v.ownerName)}${v.ownerRelationship ? ` (${esc(v.ownerRelationship)})` : ''}</td>
         <td>${v.dmvVerified ? 'DMV-verified' : 'Self-reported'}</td>
-      </tr>`).join('') || `<tr><td colspan="6">No vehicles yet.</td></tr>`}</tbody></table>
+        <td>${v.enteredBy ? esc(staffName(v.enteredBy)) : '—'}</td>
+      </tr>`).join('') || `<tr><td colspan="7">No vehicles yet.</td></tr>`}</tbody></table>
     </div>`;
 }
 
@@ -318,20 +337,22 @@ function renderPermits() {
           <div><label>School Site</label><input name="schoolSite"></div>
           <div><label>Ownership Info</label><input name="ownershipInfo" placeholder="Notes if vehicle isn't registrant's own"></div>
           <div><label>Expiration Date</label><input name="expirationDate" type="date"></div>
+          <div><label>Issued By (required)</label><select name="issuedBy" required><option value="">-- select --</option>${staffOptions()}</select></div>
         </div>
         <button type="submit">Issue Permit</button>
       </form>
     </div>
     <div class="card">
       <h2>Permits (${state.permits.length})</h2>
-      <table><thead><tr><th>Permit #</th><th>Registrant</th><th>Type</th><th>Vehicle</th><th>Zone</th><th>School</th><th>Status</th></tr></thead>
+      <table><thead><tr><th>Permit #</th><th>Registrant</th><th>Type</th><th>Vehicle</th><th>Zone</th><th>School</th><th>Status</th><th>Issued By</th></tr></thead>
       <tbody>${state.permits.map(p => `<tr>
         <td>${esc(p.permitNumber)}</td><td>${esc(p.registrantName) || esc(p.personId)}</td>
         <td>${esc(p.permitType)}</td>
         <td>${esc((state.vehicles.find(v => v.id === p.vehicleId) || {}).plate)}</td>
         <td>${esc(p.parkingZone)}</td>
         <td>${esc(p.schoolSite)}</td><td>${esc(p.status)}</td>
-      </tr>`).join('') || `<tr><td colspan="7">No permits yet.</td></tr>`}</tbody></table>
+        <td>${p.issuedBy ? esc(staffName(p.issuedBy)) : '—'}</td>
+      </tr>`).join('') || `<tr><td colspan="8">No permits yet.</td></tr>`}</tbody></table>
     </div>`;
 }
 
@@ -352,7 +373,7 @@ function renderCitations() {
           <div><label>Vehicle</label><select name="vehicleId"><option value="">-- none --</option>${vehicleOptions}</select></div>
           <div><label>Person ID</label><input name="personId" value="${esc(pre?.personId || '')}" placeholder="Free text -- no shared Person store yet"></div>
           <div><label>Violation Code</label><select name="violationCodeId" required><option value="">-- select --</option>${codeOptions}</select></div>
-          <div><label>Enforcement Officer ID</label><input name="enforcementOfficerId" required></div>
+          <div><label>Enforcement Officer</label><select name="enforcementOfficerId" required><option value="">-- select --</option>${staffOptions(pre?.enforcementOfficerId)}</select></div>
           <div><label>Location</label><input name="location" value="${esc(pre?.location || '')}"></div>
         </div>
         <button type="submit">Issue Citation</button>
@@ -360,7 +381,7 @@ function renderCitations() {
     </div>
     <div class="card">
       <h2>Citations (${state.citations.length})</h2>
-      <table><thead><tr><th>Type</th><th>Classification</th><th>Violation</th><th>Vehicle</th><th>Status</th><th>Case #</th></tr></thead>
+      <table><thead><tr><th>Type</th><th>Classification</th><th>Violation</th><th>Vehicle</th><th>Status</th><th>Case #</th><th>Officer</th></tr></thead>
       <tbody>${state.citations.map(c => {
         const code = state.violationCodes.find(vc => vc.id === c.violationCodeId) || {};
         const vehicle = state.vehicles.find(v => v.id === c.vehicleId) || {};
@@ -368,8 +389,9 @@ function renderCitations() {
           <td>${esc(c.citationType)}</td><td>${badgeFor(c.recordsClassification)}</td>
           <td>${esc(code.citation)}</td><td>${esc(vehicle.plate)}</td>
           <td>${esc(c.status)}</td><td>${esc(c.caseNumber) || '—'}</td>
+          <td>${esc(staffName(c.enforcementOfficerId))}</td>
         </tr>`;
-      }).join('') || `<tr><td colspan="6">No citations yet.</td></tr>`}</tbody></table>
+      }).join('') || `<tr><td colspan="7">No citations yet.</td></tr>`}</tbody></table>
     </div>`;
 }
 
@@ -393,6 +415,7 @@ function renderTows() {
 }
 
 function renderDmvLog() {
+  const dmv2uStaff = state.staff.filter(s => s.active && s.dmv2uAuthorized);
   return `
     <div class="card">
       <h2>Log DMV2U Inquiry</h2>
@@ -401,6 +424,12 @@ function renderDmvLog() {
       </p>
       <form id="dmvForm">
         <div class="form-grid">
+          <div><label>Select Staff (optional, autofills name/title)</label>
+            <select id="dmvStaffAutofill">
+              <option value="">-- manual entry --</option>
+              ${dmv2uStaff.map(s => `<option value="${s.id}" data-name="${esc(s.name)}" data-title="${esc(s.role)}">${esc(s.name)}</option>`).join('')}
+            </select>
+          </div>
           <div><label>Authorized User Name</label><input name="authorizedUserName" required></div>
           <div><label>DMV2U Username</label><input name="authorizedUserDmv2uUsername" required></div>
           <div><label>Title</label><input name="authorizedUserTitle"></div>
@@ -445,12 +474,53 @@ function renderViolationCodes() {
     </div>`;
 }
 
+function renderStaff() {
+  return `
+    <div class="card">
+      <h2>Add Staff / Officer</h2>
+      <p style="margin-bottom:10px;color:var(--gray-4);font-size:0.85rem;">
+        This roster is what every "who did this" dropdown in the app draws from -- Citations, Permits, Applications review, Vehicle entry.
+        No auth system exists yet (see RESUME_PROJECT_NOTE.md), so this doesn't gate who CAN act, only makes the record of who DID
+        act a real, selectable name instead of free text.
+      </p>
+      <form id="staffForm">
+        <div class="form-grid">
+          <div><label>Name</label><input name="name" required></div>
+          <div><label>Role</label>
+            <select name="role">
+              <option value="">-- select --</option>
+              <option>Public Safety Officer</option><option>Student Supervisor</option>
+              <option>District Safety Coordinator</option><option>Building Administrator</option>
+              <option>Front Office Staff</option><option>Other</option>
+            </select>
+          </div>
+          <div><label>Employee ID</label><input name="employeeIdNumber"></div>
+          <div><label>DPSST Number</label><input name="dpsstNumber"></div>
+          <div><label>DMV2U Authorized</label>
+            <select name="dmv2uAuthorized"><option value="">No</option><option value="true">Yes</option></select>
+          </div>
+        </div>
+        <button type="submit">Add Staff Member</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Roster (${state.staff.length})</h2>
+      <table><thead><tr><th>Name</th><th>Role</th><th>Employee ID</th><th>DPSST #</th><th>DMV2U Authorized</th><th>Status</th><th></th></tr></thead>
+      <tbody>${state.staff.map(s => `<tr>
+        <td>${esc(s.name)}</td><td>${esc(s.role)}</td><td>${esc(s.employeeIdNumber)}</td><td>${esc(s.dpsstNumber)}</td>
+        <td>${s.dmv2uAuthorized ? 'Yes' : 'No'}</td><td>${s.active ? 'Active' : 'Inactive'}</td>
+        <td><button class="toggleStaffActiveBtn secondary" data-staff="${s.id}" data-active="${s.active}">${s.active ? 'Deactivate' : 'Reactivate'}</button></td>
+      </tr>`).join('') || `<tr><td colspan="7">No staff yet.</td></tr>`}</tbody></table>
+    </div>`;
+}
+
 const TABS = [
   ['lookup', 'Field Lookup', renderLookup],
   ['vehicles', 'Vehicles', renderVehicles],
   ['permits', 'Permits', renderPermits],
   ['applications', 'Applications', renderApplications],
   ['citations', 'Citations', renderCitations],
+  ['staff', 'Staff', renderStaff],
   ['tows', 'Towing (gated)', renderTows],
   ['dmvLog', 'DMV2U Log', renderDmvLog],
   ['codes', 'Violation Codes', renderViolationCodes],
@@ -649,6 +719,14 @@ function wireEvents() {
       render();
     };
   });
+
+  const dmvStaffAutofill = document.getElementById('dmvStaffAutofill');
+  if (dmvStaffAutofill) dmvStaffAutofill.onchange = () => {
+    const opt = dmvStaffAutofill.selectedOptions[0];
+    if (!opt || !opt.value) return;
+    document.querySelector('#dmvForm input[name="authorizedUserName"]').value = opt.dataset.name || '';
+    document.querySelector('#dmvForm input[name="authorizedUserTitle"]').value = opt.dataset.title || '';
+  };
 
   const dmvForm = document.getElementById('dmvForm');
   if (dmvForm) dmvForm.onsubmit = async (e) => {

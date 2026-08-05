@@ -36,6 +36,25 @@ async function run() {
   }
   console.log(`✓ Violation Code Library seeded (${VIOLATION_CODES.length} entries, from ECD §4)`);
 
+  // Demo Staff/Officer roster. Names/IDs are placeholders (clearly
+  // labeled "Demo"), not real district personnel -- do not treat these as
+  // real employee records.
+  const STAFF = [
+    { id: uuidv4(), name: 'Demo Public Safety Officer', employeeIdNumber: 'E-DEMO-01', dpsstNumber: 'DPSST-DEMO-01', role: 'Public Safety Officer', dmv2uAuthorized: 1 },
+    { id: uuidv4(), name: 'Demo Student Supervisor', employeeIdNumber: 'E-DEMO-02', dpsstNumber: '', role: 'Student Supervisor', dmv2uAuthorized: 1 },
+    { id: uuidv4(), name: 'Demo District Safety Coordinator', employeeIdNumber: 'E-DEMO-03', dpsstNumber: 'DPSST-DEMO-03', role: 'District Safety Coordinator', dmv2uAuthorized: 1 },
+  ];
+  const now0 = new Date().toISOString();
+  for (const s of STAFF) {
+    try {
+      db.prepare(`INSERT OR IGNORE INTO staff (id, name, employeeIdNumber, dpsstNumber, role, dmv2uAuthorized, active, createdAt, updatedAt)
+        VALUES ($id, $name, $employeeIdNumber, $dpsstNumber, $role, $dmv2uAuthorized, 1, $now, $now)`)
+        .run({ ...s, now: now0 });
+    } catch (e) { /* already seeded */ }
+  }
+  console.log(`✓ Demo Staff roster seeded (${STAFF.length} entries)`);
+  const demoStaffId = STAFF[0].id;
+
   // Minimal demo data so the module is exercisable end-to-end without
   // depending on case-management's persons table (no shared Person store
   // exists yet -- see RESUME_PROJECT_NOTE.md / dashboard red items).
@@ -43,24 +62,25 @@ async function run() {
   const demoVehicleId = uuidv4();
   const now = new Date().toISOString();
   db.prepare(`INSERT OR IGNORE INTO vehicles (id, plate, state, vin, make, model, year, color,
-      ownerPersonId, ownerName, ownerRelationship,
+      ownerPersonId, ownerName, ownerRelationship, enteredBy,
       selfReported, dmvVerified, dmvVerifiedAt, createdAt, updatedAt)
     VALUES ($id, 'DEMO123', 'OR', '1FADP3F20EL123456', 'Ford', 'Focus', '2021', 'Blue',
-      'demo-person-1', 'Pat Demo (Parent)', 'Parent', 1, 0, NULL, $now, $now)`).run({ id: demoVehicleId, now });
+      'demo-person-1', 'Pat Demo (Parent)', 'Parent', $enteredBy, 1, 0, NULL, $now, $now)`)
+    .run({ id: demoVehicleId, now, enteredBy: demoStaffId });
 
   db.prepare(`INSERT OR IGNORE INTO parking_permits (id, personId, vehicleId, permitNumber, schoolSite,
       registrantName, affiliateType, studentIdNumber, employeeIdNumber,
       driverLicenseNumber, driverLicenseState,
       insuranceCarrier, insurancePolicyNumber, insurancePolicyExpiration,
-      ownershipInfo, permitType, parkingZone,
+      ownershipInfo, permitType, parkingZone, issuedBy,
       issuedDate, expirationDate, status, createdAt, updatedAt)
     VALUES ($id, 'demo-person-1', $vehicleId, 'PERMIT-2026-0001', 'Forest Grove High School',
       'Demo Student', 'Student', 'S1234567', '',
       'DEMO1234D', 'OR',
       'Demo Mutual Insurance', 'POL-DEMO-0001', '2026-12-31',
-      'Registered to parent (see Vehicle record)', 'Student', 'Lot A - Student',
+      'Registered to parent (see Vehicle record)', 'Student', 'Lot A - Student', $issuedBy,
       $now, NULL, 'Active', $now, $now)`)
-    .run({ id: uuidv4(), vehicleId: demoVehicleId, now });
+    .run({ id: uuidv4(), vehicleId: demoVehicleId, now, issuedBy: demoStaffId });
 
   console.log('✓ Demo vehicle + active Student permit seeded (for Administrative-track citation testing)');
   console.log('\n✅ All parking module seed data complete. Run: npm run parking\n');

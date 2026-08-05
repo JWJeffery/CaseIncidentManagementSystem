@@ -16,6 +16,7 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { v4: uuidv4 } = require('uuid');
+const { requireActiveStaff } = require('./staff');
 
 const PERMIT_TYPES = [
   'Student', 'Faculty/Staff', 'Visitor', 'Vendor/Contractor',
@@ -123,24 +124,22 @@ router.post('/:id/approve', (req, res) => {
     if (app.status !== 'Submitted' && app.status !== 'Under Review') {
       return res.status(400).json({ error: `Cannot approve an application with status "${app.status}".` });
     }
-    if (!req.body.reviewedBy) {
-      return res.status(400).json({ error: 'reviewedBy is required to approve an application.' });
-    }
+    const reviewer = requireActiveStaff(req.body.reviewedBy, 'reviewedBy');
 
     const now = new Date().toISOString();
     const vehicleId = uuidv4();
     db.prepare(`
       INSERT INTO vehicles (id, plate, state, vin, make, model, year, color,
-        ownerPersonId, ownerName, ownerRelationship,
+        ownerPersonId, ownerName, ownerRelationship, enteredBy,
         selfReported, dmvVerified, dmvVerifiedAt, createdAt, updatedAt)
       VALUES ($id, $plate, $state, $vin, $make, $model, $year, $color,
-        $ownerPersonId, $ownerName, $ownerRelationship,
+        $ownerPersonId, $ownerName, $ownerRelationship, $enteredBy,
         1, 0, NULL, $createdAt, $updatedAt)
     `).run({
       id: vehicleId, plate: app.vehiclePlate, state: app.vehicleState, vin: app.vehicleVin,
       make: app.vehicleMake, model: app.vehicleModel, year: app.vehicleYear, color: app.vehicleColor,
       ownerPersonId: app.personId, ownerName: app.ownerName || app.registrantName,
-      ownerRelationship: app.ownerRelationship || 'Self',
+      ownerRelationship: app.ownerRelationship || 'Self', enteredBy: reviewer.id,
       createdAt: now, updatedAt: now,
     });
 
@@ -151,13 +150,13 @@ router.post('/:id/approve', (req, res) => {
         registrantName, affiliateType, studentIdNumber, employeeIdNumber,
         driverLicenseNumber, driverLicenseState,
         insuranceCarrier, insurancePolicyNumber, insurancePolicyExpiration,
-        ownershipInfo, permitType, parkingZone,
+        ownershipInfo, permitType, parkingZone, issuedBy,
         issuedDate, expirationDate, status, createdAt, updatedAt)
       VALUES ($id, $personId, $vehicleId, $permitNumber, $schoolSite,
         $registrantName, $affiliateType, $studentIdNumber, $employeeIdNumber,
         $driverLicenseNumber, $driverLicenseState,
         $insuranceCarrier, $insurancePolicyNumber, $insurancePolicyExpiration,
-        $ownershipInfo, $permitType, $parkingZone,
+        $ownershipInfo, $permitType, $parkingZone, $issuedBy,
         $issuedDate, NULL, 'Active', $createdAt, $updatedAt)
     `).run({
       id: permitId, personId: app.personId, vehicleId, permitNumber, schoolSite: app.schoolSite,
@@ -167,7 +166,7 @@ router.post('/:id/approve', (req, res) => {
       insuranceCarrier: app.insuranceCarrier, insurancePolicyNumber: app.insurancePolicyNumber,
       insurancePolicyExpiration: app.insurancePolicyExpiration,
       ownershipInfo: app.ownerName ? `Registered to ${app.ownerName} (${app.ownerRelationship || 'relationship not specified'})` : '',
-      permitType: app.permitTypeRequested, parkingZone: app.parkingZoneRequested,
+      permitType: app.permitTypeRequested, parkingZone: app.parkingZoneRequested, issuedBy: reviewer.id,
       issuedDate: now, createdAt: now, updatedAt: now,
     });
 
@@ -175,28 +174,34 @@ router.post('/:id/approve', (req, res) => {
       UPDATE permit_applications SET status = 'Approved', reviewedBy = ?, reviewedAt = ?,
         reviewNotes = ?, resultingVehicleId = ?, resultingPermitId = ?, updatedAt = ?
       WHERE id = ?
-    `).run(req.body.reviewedBy, now, req.body.reviewNotes || '', vehicleId, permitId, now, req.params.id);
+    `).run(reviewer.id, now, req.body.reviewNotes || '', vehicleId, permitId, now, req.params.id);
 
     res.json({ id: req.params.id, vehicleId, permitId, permitNumber });
   } catch (err) {
     console.error('POST /api/applications/:id/approve failed:', err);
-    res.status(500).json({ error: 'Internal error approving application.', detail: err.message });
+    res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Internal error approving application.', detail: err.message });
   }
 });
 
 // POST /api/applications/:id/reject
 router.post('/:id/reject', (req, res) => {
-  const app = db.prepare('SELECT * FROM permit_applications WHERE id = ?').get(req.params.id);
-  if (!app) return res.status(404).json({ error: 'Not found' });
-  if (!req.body.reviewedBy || !req.body.reviewNotes) {
-    return res.status(400).json({ error: 'reviewedBy and reviewNotes are required to reject an application.' });
+  try {
+    const app = db.prepare('SELECT * FROM permit_applications WHERE id = ?').get(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Not found' });
+    const reviewer = requireActiveStaff(req.body.reviewedBy, 'reviewedBy');
+    if (!req.body.reviewNotes) {
+      return res.status(400).json({ error: 'reviewNotes is required to reject an application.' });
+    }
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE permit_applications SET status = 'Rejected', reviewedBy = ?, reviewedAt = ?,
+        reviewNotes = ?, updatedAt = ? WHERE id = ?
+    `).run(reviewer.id, now, req.body.reviewNotes, now, req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /api/applications/:id/reject failed:', err);
+    res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Internal error rejecting application.', detail: err.message });
   }
-  const now = new Date().toISOString();
-  db.prepare(`
-    UPDATE permit_applications SET status = 'Rejected', reviewedBy = ?, reviewedAt = ?,
-      reviewNotes = ?, updatedAt = ? WHERE id = ?
-  `).run(req.body.reviewedBy, now, req.body.reviewNotes, now, req.params.id);
-  res.json({ ok: true });
 });
 
 module.exports = router;

@@ -59,6 +59,15 @@ handled as a first-class architectural concern, not an afterthought.
     it's the primary field-use case for a student supervisor on a phone).
     **Document upload (license/insurance photos) is now a labeled
     PROTOTYPE** — see below, not glossed over as production-ready.
+    Same-day addition (2026-08-05, later): **Staff/Officer roster**
+    (`staff` table, `routes/staff.js`) replaces every free-text "who did
+    this" field with a real, validated reference — Citation's
+    enforcementOfficerId, Permit's new issuedBy, Vehicle's new optional
+    enteredBy, PermitApplication's reviewedBy (which now propagates into
+    the resulting Permit's issuedBy on approval). Deactivating a staff
+    member immediately blocks them from being used for new actions. New
+    "Staff" tab in the UI; a `staffOptions()`/`staffName()` helper drives
+    every dropdown that used to be free text.
   - `packages/shared/` (`@fgsd/shared`) — Incident Number (lifetime
     sequence, `FGSD-#######`) / Case Number (annual reset,
     `FGSD-YYYY-#####`) formatting; records classification enum + disclosure
@@ -161,6 +170,41 @@ a safety net. Worth auditing `case-management`'s routes for the same
 exist there (all synchronous), which is why this specific failure mode
 hadn't surfaced there yet.
 
+## Standing operational rule (set 2026-08-05)
+
+**Finish each module completely before moving to the next one.** Applies
+to all future modules too, unless Josh explicitly says otherwise.
+Currently finishing `packages/parking` — see the checklist below for what
+"finished" still requires. Do not start work on Injury Reports, the
+Central Counter Service, auth, or any other module until this list is
+empty or Josh explicitly redirects.
+
+## packages/parking "finish" checklist (as of 2026-08-05)
+
+Done: search happens through Field Lookup (single-record, phone-first) but
+NOT through Vehicles/Permits/Citations tabs (no filter UI there yet).
+Done: Staff/Officer roster with real validated identity everywhere.
+Done: PROTOTYPE document attachments.
+
+Still open, roughly in priority order:
+1. **Search/filter UI** on Vehicles, Permits, Citations tabs — backend
+   mostly already supports it (`?search=` on vehicles, `?status=`/
+   `?permitType=` on permits), just no UI wired to it.
+2. **Printable citation document** — case-management has a real printable
+   Exclusion Notice; Citations here produces nothing a driver could be
+   handed or that could be filed/mailed. Real gap once Court-track ever
+   activates, and arguably useful for Administrative-track today too.
+3. **Permit expiration handling** — `expirationDate` exists but nothing
+   transitions a permit to `Expired` automatically; no renewal flow.
+4. **Tow's actual statutory-deadline workflow** — only schema + board gate
+   exist (design doc §4.12a). Lower urgency since board-gated anyway, but
+   not done.
+5. **Reporting/analytics** — no violation trend or citation-count views.
+6. **PWA/offline support** — Field Lookup was designed with the
+   phone-in-hand use case in mind but isn't installable or offline-capable.
+7. Cross-module dependencies, not strictly parking-scoped, but block real
+   completeness: no shared Person store, no auth/role system anywhere.
+
 ## On the horizon
 
 1. Resolve the Reunification browser-bundler open question before wiring
@@ -170,16 +214,13 @@ hadn't surfaced there yet.
    each generate Case Numbers independently against their own tables —
    if both need to draw from one true sequence, that has to get built
    before either goes to production.
-3. Continue building out `packages/parking`'s UI/workflow depth (e.g. the
-   Tow subsystem's statutory-deadline tracking mentioned in design doc
-   §4.12a isn't implemented yet, just the schema/gating).
-4. Once Josh confirms the monorepo push is solid, he deletes the standalone
+3. Once Josh confirms the monorepo push is solid, he deletes the standalone
    Reunification repo to free a slot.
-5. No shared Person store exists yet — `parking` and `case-management`
+4. No shared Person store exists yet — `parking` and `case-management`
    both use free-text `personId` strings with no cross-reference. This is
    the design doc's biggest unbuilt piece (§4.1) and blocks real
    cross-module linkage (e.g. an Exclusion check at citation time).
-6. **Document upload is a labeled PROTOTYPE, not production-ready** —
+5. **Document upload is a labeled PROTOTYPE, not production-ready** —
    `packages/parking/server/routes/attachments.js` + `document_attachments`
    table. Local disk storage, no encryption at rest, no access control, no
    durable storage. A persistent amber banner appears on every tab of the
@@ -195,7 +236,7 @@ hadn't surfaced there yet.
    depends on the auth system that doesn't exist yet either), and probably
    encryption at rest. Do not treat the prototype's existence as
    permission to skip that work later.
-7. No auth/role system exists anywhere in the monorepo. The Applications
+6. No auth/role system exists anywhere in the monorepo. The Applications
    approve/reject endpoints don't distinguish "a student submitting their
    own application" from "staff reviewing it" beyond which API call is
    made — anyone who can reach the API can call either. Real gap, flagged

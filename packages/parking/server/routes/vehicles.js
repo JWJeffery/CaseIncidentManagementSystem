@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { v4: uuidv4 } = require('uuid');
+const { requireActiveStaff } = require('./staff');
 
 // GET /api/vehicles - list with optional plate/VIN search
 router.get('/', (req, res) => {
@@ -65,7 +66,14 @@ router.get('/:id', (req, res) => {
 });
 
 // POST /api/vehicles
+// enteredBy is optional here (unlike issuedBy on Permit or
+// enforcementOfficerId on Citation) because a Vehicle can also come from
+// self-registration, where the applicant enters their own data -- there's
+// no staff member to attribute it to in that path. When provided, it must
+// be a real active Staff record, same as everywhere else.
 router.post('/', (req, res) => {
+  try {
+  const enteredBy = req.body.enteredBy ? requireActiveStaff(req.body.enteredBy, 'enteredBy').id : null;
   const id = uuidv4();
   const now = new Date().toISOString();
   const data = {
@@ -86,6 +94,7 @@ router.post('/', (req, res) => {
     // store yet for the owner to reference by ID.
     ownerName: req.body.ownerName || '',
     ownerRelationship: req.body.ownerRelationship || '',
+    enteredBy,
     // Provenance split per design doc §4.10 -- self-reported (permit
     // application) vs. DMV-verified (a DMV2U query). Defaults to
     // self-reported; only a DMV query flips this via PATCH.
@@ -97,13 +106,17 @@ router.post('/', (req, res) => {
   };
   db.prepare(`
     INSERT INTO vehicles (id, plate, state, vin, make, model, year, color,
-      ownerPersonId, ownerName, ownerRelationship,
+      ownerPersonId, ownerName, ownerRelationship, enteredBy,
       selfReported, dmvVerified, dmvVerifiedAt, createdAt, updatedAt)
     VALUES ($id, $plate, $state, $vin, $make, $model, $year, $color,
-      $ownerPersonId, $ownerName, $ownerRelationship,
+      $ownerPersonId, $ownerName, $ownerRelationship, $enteredBy,
       $selfReported, $dmvVerified, $dmvVerifiedAt, $createdAt, $updatedAt)
   `).run(data);
   res.json({ id });
+  } catch (err) {
+    console.error('POST /api/vehicles failed:', err);
+    res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Internal error adding vehicle.', detail: err.message });
+  }
 });
 
 // PATCH /api/vehicles/:id
