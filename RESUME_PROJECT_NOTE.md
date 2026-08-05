@@ -207,6 +207,13 @@ check and Field Lookup's result. Fixed via an opportunistic sweep
 (`sweepExpiredPermits()`) plus a single shared `getActiveValidPermitForVehicle()`
 now used by permits.js, citations.js, and vehicles.js instead of three
 separate driftable queries. New `POST /api/permits/:id/renew`.
+Done: Permits auto-populate their expiration from a district-wide school
+year end date (`server/schoolYearConfig.js`, `tests/schoolYearConfig.test.js`,
+`routes/schoolYear.js`) -- Josh's direction, since permits are issued for
+the school year, not an arbitrary date. Admin is prompted once a year
+(only when the configured date has actually lapsed, not on every visit)
+via a banner on the Permits tab. Explicit overrides on issuance/renewal
+still work (Visitor/Temporary permits needing a shorter window).
 
 Still open, roughly in priority order:
 1. **Reporting/analytics** — no violation trend or citation-count views.

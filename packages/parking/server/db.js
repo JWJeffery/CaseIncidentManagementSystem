@@ -220,6 +220,21 @@ async function initDB() {
     createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
   );`);
 
+  // NEW -- School Year Config. Parking permits are issued for the school
+  // year, not an arbitrary date range (Josh's explicit direction). Every
+  // time an admin sets a new end date, that's a new row -- the current
+  // config is always the most recently created row. This gives a natural
+  // audit trail (who set it, when, what it was before) for free, without
+  // needing separate "previous value" columns the way permits' renewal
+  // tracking needed them.
+  _db.run(`CREATE TABLE IF NOT EXISTS school_year_config (
+    id TEXT PRIMARY KEY,
+    schoolYearEndDate TEXT NOT NULL,
+    setBy TEXT NOT NULL,
+    setAt TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+  );`);
+
   // Idempotent migrations for the schema additions above -- lets an
   // existing dev database pick up new columns without requiring `rm -rf
   // data`. SQLite has no "ADD COLUMN IF NOT EXISTS"; each is wrapped so a

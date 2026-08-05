@@ -1,6 +1,6 @@
 // public/js/app.js
 const root = document.getElementById('app-root');
-let state = { tab: 'lookup', vehicles: [], permits: [], permitTypes: [], applications: [], attachmentsByRecord: {}, staff: [], violationCodes: [], citations: [], tows: [], dmvLog: [], msg: null, lookupResult: null, citationPrefill: null, vehicleFilter: { search: '' }, permitFilter: { search: '', status: '', permitType: '' }, citationFilter: { search: '', status: '', citationType: '' }, _focusId: null, _focusPos: null };
+let state = { tab: 'lookup', vehicles: [], permits: [], permitTypes: [], applications: [], attachmentsByRecord: {}, staff: [], schoolYear: null, violationCodes: [], citations: [], tows: [], dmvLog: [], msg: null, lookupResult: null, citationPrefill: null, vehicleFilter: { search: '' }, permitFilter: { search: '', status: '', permitType: '' }, citationFilter: { search: '', status: '', citationType: '' }, _focusId: null, _focusPos: null };
 
 async function api(path, opts) {
   const res = await fetch(`/api${path}`, {
@@ -61,10 +61,10 @@ function wireLiveSearch(inputId, filterObj, key) {
 }
 
 async function loadAll() {
-  const [vehicles, permits, permitTypes, applications, staff, violationCodes, citations, tows, dmvLog] = await Promise.all([
-    api('/vehicles'), api('/permits'), api('/permits/types'), api('/applications'), api('/staff?includeInactive=true'), api('/violationCodes'), api('/citations'), api('/tows'), api('/dmvQueryLog'),
+  const [vehicles, permits, permitTypes, applications, staff, schoolYear, violationCodes, citations, tows, dmvLog] = await Promise.all([
+    api('/vehicles'), api('/permits'), api('/permits/types'), api('/applications'), api('/staff?includeInactive=true'), api('/schoolYear'), api('/violationCodes'), api('/citations'), api('/tows'), api('/dmvQueryLog'),
   ]);
-  Object.assign(state, { vehicles, permits, permitTypes, applications, staff, violationCodes, citations, tows, dmvLog });
+  Object.assign(state, { vehicles, permits, permitTypes, applications, staff, schoolYear, violationCodes, citations, tows, dmvLog });
 
   // Prefetch attachments for every pending application so the review
   // queue can show them without a per-card async render step.
@@ -353,13 +353,27 @@ function renderPermits() {
   const filtered = filterPermits();
   const filterTypeOptions = state.permitTypes.map(t => `<option ${state.permitFilter.permitType === t ? 'selected' : ''}>${esc(t)}</option>`).join('');
   const statuses = ['Active', 'Expired', 'Revoked'];
+  const sy = state.schoolYear;
+  const syBanner = sy && sy.needsUpdate ? `
+    <div class="gate-notice">
+      <b>${sy.reason === 'never-configured' ? 'No school year end date has been set yet.' : `The configured school year end date (${esc(sy.currentEndDate)}) has passed.`}</b>
+      Permits default their expiration to this date on issuance and renewal. Set the new one below -- this only needs doing once per year.
+      <form id="schoolYearForm" class="form-grid" style="margin-top:10px;grid-template-columns:1fr 1fr 1fr;align-items:end;">
+        <div><label>New School Year End Date</label><input name="schoolYearEndDate" type="date" required></div>
+        <div><label>Set By</label><select name="setBy" required><option value="">-- select --</option>${staffOptions()}</select></div>
+        <div><button type="submit">Set School Year End Date</button></div>
+      </form>
+    </div>` : sy ? `<div class="msg success">Current school year end date: ${esc(sy.currentEndDate)}. New permits default to this automatically.</div>` : '';
+  const defaultExpirationValue = sy && !sy.needsUpdate ? esc(sy.currentEndDate) : '';
   return `
+    ${syBanner}
     <div class="card">
       <h2>Issue Parking Permit</h2>
       <p style="margin-bottom:10px;color:var(--gray-4);font-size:0.85rem;">
         Fields match what Board Policy JHFD already requires the District to collect for student vehicle registration
         (valid driver's license, current registration, insurance/financial responsibility), plus standard permit
-        type and lot/zone assignment.
+        type and lot/zone assignment. Expiration defaults to the school year end date -- override it for permits
+        that need a shorter window (Visitor, Temporary).
       </p>
       <form id="permitForm">
         <div class="form-grid">
@@ -383,7 +397,7 @@ function renderPermits() {
           <div><label>Parking Zone / Lot</label><input name="parkingZone" placeholder="e.g. Lot A - Student"></div>
           <div><label>School Site</label><input name="schoolSite"></div>
           <div><label>Ownership Info</label><input name="ownershipInfo" placeholder="Notes if vehicle isn't registrant's own"></div>
-          <div><label>Expiration Date</label><input name="expirationDate" type="date"></div>
+          <div><label>Expiration Date${sy && !sy.needsUpdate ? ' (defaults to school year end)' : ''}</label><input name="expirationDate" type="date" value="${defaultExpirationValue}"></div>
           <div><label>Issued By (required)</label><select name="issuedBy" required><option value="">-- select --</option>${staffOptions()}</select></div>
         </div>
         <button type="submit">Issue Permit</button>
@@ -417,7 +431,7 @@ function renderPermits() {
         <td>
           ${p.status === 'Expired' ? `
             <form class="permitRenewForm" data-permit="${p.id}" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
-              <input name="expirationDate" type="date" required style="padding:3px;width:130px;">
+              <input name="expirationDate" type="date" value="${defaultExpirationValue}" style="padding:3px;width:130px;" title="Leave blank to use the current school year end date">
               <select name="renewedBy" required style="padding:3px;"><option value="">Renewed by...</option>${staffOptions()}</select>
               <button type="submit" style="padding:3px 8px;font-size:0.8rem;">Renew</button>
             </form>` : '—'}
@@ -797,6 +811,18 @@ function wireEvents() {
       render();
     };
   });
+
+  const schoolYearForm = document.getElementById('schoolYearForm');
+  if (schoolYearForm) schoolYearForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(schoolYearForm));
+    try {
+      await api('/schoolYear', { method: 'POST', body: JSON.stringify(body) });
+      await loadAll();
+      state.msg = { type: 'success', text: 'School year end date set. New and renewed permits will default to it.' };
+    } catch (err) { state.msg = { type: 'error', text: err.message }; }
+    render();
+  };
 
   const citationForm = document.getElementById('citationForm');
   if (citationForm) citationForm.onsubmit = async (e) => {

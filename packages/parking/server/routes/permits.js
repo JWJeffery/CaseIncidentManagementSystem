@@ -5,6 +5,8 @@ const { db } = require('../db');
 const { v4: uuidv4 } = require('uuid');
 const { requireActiveStaff } = require('./staff');
 const { isPermitExpired } = require('../permitExpiration');
+const { defaultExpirationDate } = require('../schoolYearConfig');
+const { getCurrentConfig } = require('./schoolYear');
 
 // Opportunistic expiration sweep -- there's no background job scheduler
 // in this app, so expiration is enforced lazily: any Active permit whose
@@ -108,6 +110,17 @@ router.post('/', (req, res) => {
   }
   const issuer = requireActiveStaff(req.body.issuedBy, 'issuedBy');
   const permitType = PERMIT_TYPES.includes(req.body.permitType) ? req.body.permitType : 'Student';
+  // Permits are issued for the school year -- default the expiration to
+  // the district's configured school-year end date unless the caller
+  // explicitly provided one (e.g. a Temporary or Visitor permit
+  // legitimately needing a shorter window). defaultExpirationDate()
+  // returns null if no config exists yet or the configured date has
+  // already lapsed, in which case explicit input is still required below.
+  const explicitExpiration = req.body.expirationDate;
+  const resolvedExpiration = explicitExpiration || defaultExpirationDate(getCurrentConfig());
+  if (!resolvedExpiration) {
+    return res.status(400).json({ error: 'expirationDate is required -- no school year end date is currently configured (or it has lapsed). Set one via /api/schoolYear first, or provide an explicit date.' });
+  }
   const id = uuidv4();
   const now = new Date().toISOString();
   const data = {
@@ -130,7 +143,7 @@ router.post('/', (req, res) => {
     parkingZone: req.body.parkingZone || '',
     issuedBy: issuer.id,
     issuedDate: req.body.issuedDate || now,
-    expirationDate: req.body.expirationDate || null,
+    expirationDate: resolvedExpiration || null,
     status: req.body.status || 'Active',
     createdAt: now,
     updatedAt: now,
@@ -194,8 +207,13 @@ router.post('/:id/renew', (req, res) => {
     if (permit.status === 'Revoked') {
       return res.status(400).json({ error: 'A revoked permit cannot be renewed -- issue a new permit instead.' });
     }
-    if (!req.body.expirationDate) {
-      return res.status(400).json({ error: 'expirationDate is required to renew.' });
+    // Renewals default to the configured school-year end date too, same
+    // as issuance -- an admin renewing a batch of expired permits at the
+    // start of a new year shouldn't have to type the same date in
+    // repeatedly.
+    const resolvedExpiration = req.body.expirationDate || defaultExpirationDate(getCurrentConfig());
+    if (!resolvedExpiration) {
+      return res.status(400).json({ error: 'expirationDate is required -- no school year end date is currently configured (or it has lapsed). Set one via /api/schoolYear first, or provide an explicit date.' });
     }
     const renewer = requireActiveStaff(req.body.renewedBy, 'renewedBy');
     const now = new Date().toISOString();
@@ -203,8 +221,8 @@ router.post('/:id/renew', (req, res) => {
       UPDATE parking_permits SET status = 'Active', expirationDate = ?,
         renewedBy = ?, renewedAt = ?, previousExpirationDate = ?, updatedAt = ?
       WHERE id = ?
-    `).run(req.body.expirationDate, renewer.id, now, permit.expirationDate, now, req.params.id);
-    res.json({ ok: true, expirationDate: req.body.expirationDate });
+    `).run(resolvedExpiration, renewer.id, now, permit.expirationDate, now, req.params.id);
+    res.json({ ok: true, expirationDate: resolvedExpiration });
   } catch (err) {
     console.error('POST /api/permits/:id/renew failed:', err);
     res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Internal error renewing permit.', detail: err.message });

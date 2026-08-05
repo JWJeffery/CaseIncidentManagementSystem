@@ -8,7 +8,7 @@
     "start": "node server/index.js",
     "dev": "node server/index.js",
     "seed": "node server/seed.js",
-    "test": "node tests/towWorkflow.test.js && node tests/permitExpiration.test.js"
+    "test": "node tests/towWorkflow.test.js && node tests/permitExpiration.test.js && node tests/schoolYearConfig.test.js"
   },
   "dependencies": {
     "@fgsd/shared": "*",

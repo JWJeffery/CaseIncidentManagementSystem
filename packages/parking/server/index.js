@@ -15,6 +15,7 @@ async function start() {
   app.use('/api/applications',  require('./routes/applications'));
   app.use('/api/attachments',   require('./routes/attachments'));
   app.use('/api/staff',         require('./routes/staff'));
+  app.use('/api/schoolYear',    require('./routes/schoolYear'));
   app.use('/api/violationCodes',require('./routes/violationCodes'));
   app.use('/api/citations',     require('./routes/citations'));
   app.use('/api/tows',          require('./routes/tows'));
