@@ -245,6 +245,15 @@ async function initDB() {
     `ALTER TABLE citations ADD COLUMN citationNumber TEXT`,
     `ALTER TABLE citations ADD COLUMN printedAt TEXT`,
     `ALTER TABLE citations ADD COLUMN printedBy TEXT`,
+    `ALTER TABLE tows ADD COLUMN status TEXT DEFAULT 'Open'`,
+    `ALTER TABLE tows ADD COLUMN hearingDecidedAt TEXT`,
+    `ALTER TABLE tows ADD COLUMN affixedBy TEXT`,
+    `ALTER TABLE tows ADD COLUMN executedBy TEXT`,
+    `ALTER TABLE tows ADD COLUMN mailedBy TEXT`,
+    `ALTER TABLE tows ADD COLUMN requestedBy TEXT`,
+    `ALTER TABLE tows ADD COLUMN scheduledBy TEXT`,
+    `ALTER TABLE tows ADD COLUMN decidedBy TEXT`,
+    `ALTER TABLE tows ADD COLUMN releasedBy TEXT`,
   ];
   for (const sql of migrations) {
     try { _db.run(sql); } catch (e) { /* column already exists -- fine */ }

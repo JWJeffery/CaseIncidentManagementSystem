@@ -498,13 +498,57 @@ function renderCitations() {
     </div>`;
 }
 
+// Client-side mirror of the deadline-status -> color mapping. The actual
+// status values themselves come from the server's towWorkflow.js -- this
+// is presentation-only, not a second copy of the deadline math.
+function deadlineBadge(entry) {
+  if (!entry || !entry.status) return '';
+  const colors = { complete: 'education', 'complete-late': 'court', ok: 'education', 'due-soon': 'leu', overdue: 'court' };
+  const cls = colors[entry.status] || 'education';
+  const when = entry.deadline ? new Date(entry.deadline).toLocaleString() : '';
+  return `<span class="badge ${cls}" title="Deadline: ${esc(when)}">${esc(entry.status)}</span>`;
+}
+
+function towActionForm(t) {
+  const staffSelect = (name) => `<select name="${name}" required><option value="">-- select --</option>${staffOptions()}</select>`;
+  switch (t.status) {
+    case 'Open':
+      return t.hazardTow
+        ? `<form class="towActionForm" data-tow="${t.id}" data-action="execute-tow"><label>Executed By</label>${staffSelect('executedBy')}<button type="submit">Execute Tow (hazard -- immediate)</button></form>`
+        : `<form class="towActionForm" data-tow="${t.id}" data-action="affix-pre-tow-notice"><label>Affixed By</label>${staffSelect('affixedBy')}<button type="submit">Affix Pre-Tow Notice</button></form>`;
+    case 'Pre-Tow Notice Affixed':
+      return `<form class="towActionForm" data-tow="${t.id}" data-action="execute-tow"><label>Executed By</label>${staffSelect('executedBy')}<button type="submit">Execute Tow</button></form>
+        <div style="font-size:0.75rem;color:var(--gray-4);margin-top:4px;">Blocked by the server until the 48hr window elapses.</div>`;
+    case 'Towed':
+      return `<form class="towActionForm" data-tow="${t.id}" data-action="mail-post-tow-notice"><label>Mailed By</label>${staffSelect('mailedBy')}<button type="submit">Mail Post-Tow Notice</button></form>
+        <form class="towActionForm" data-tow="${t.id}" data-action="request-hearing" style="margin-top:6px;"><label>Requested By (owner name)</label><input name="requestedBy" required><button type="submit">Request Hearing</button></form>
+        <form class="towActionForm" data-tow="${t.id}" data-action="release" style="margin-top:6px;"><label>Released To</label><input name="releasedTo" required><label>Charges Paid?</label><select name="_paid"><option value="">No</option><option value="yes">Yes</option></select><label>Released By</label>${staffSelect('releasedBy')}<button type="submit">Release (uncontested)</button></form>`;
+    case 'Post-Tow Notice Mailed':
+      return `<form class="towActionForm" data-tow="${t.id}" data-action="request-hearing"><label>Requested By (owner name)</label><input name="requestedBy" required><button type="submit">Request Hearing</button></form>
+        <form class="towActionForm" data-tow="${t.id}" data-action="release" style="margin-top:6px;"><label>Released To</label><input name="releasedTo" required><label>Charges Paid?</label><select name="_paid"><option value="">No</option><option value="yes">Yes</option></select><label>Released By</label>${staffSelect('releasedBy')}<button type="submit">Release (uncontested)</button></form>`;
+    case 'Hearing Requested':
+      return `<form class="towActionForm" data-tow="${t.id}" data-action="schedule-hearing"><label>Scheduled By</label>${staffSelect('scheduledBy')}<label>Date/Time</label><input name="hearingScheduledAt" type="datetime-local" required><button type="submit">Schedule Hearing</button></form>`;
+    case 'Hearing Scheduled':
+      return `<form class="towActionForm" data-tow="${t.id}" data-action="decide-hearing"><label>Decided By</label>${staffSelect('decidedBy')}<label>Decision</label><select name="decision" required><option value="">-- select --</option><option>Valid</option><option>Invalid</option></select><button type="submit">Record Decision</button></form>`;
+    case 'Hearing Decided -- Valid':
+    case 'Hearing Decided -- Invalid':
+      return `<form class="towActionForm" data-tow="${t.id}" data-action="release"><label>Released To</label><input name="releasedTo" required>${t.status.includes('Valid') ? '<label>Charges Paid?</label><select name="_paid"><option value="">No</option><option value="yes">Yes</option></select>' : ''}<label>Released By</label>${staffSelect('releasedBy')}<button type="submit">Release</button></form>`;
+    case 'Released':
+      return `<span style="color:var(--gray-4);font-size:0.85rem;">Closed.</span>`;
+    default:
+      return '';
+  }
+}
+
 function renderTows() {
+  const vehicleOptions = state.vehicles.map(v => `<option value="${v.id}">${esc(v.plate)}</option>`).join('');
   return `
     <div class="gate-notice">
       <b>Towing is disabled.</b>
       This entire subsystem is board-gated pending school board adoption of proposed Board Policy ECD (design doc §1.7 / §4.12a).
-      The schema and API exist so the system is ready the day it's adopted, but every write is rejected server-side until then --
-      this isn't just a UI restriction. Try the button below to see the real 403 response.
+      The schema, workflow, and full statutory-deadline tracking below are real and tested -- see
+      <code>packages/parking/tests/towWorkflow.test.js</code> -- but every write is rejected server-side until the board acts.
+      This isn't just a UI restriction. Try the button below to see the real 403 response.
     </div>
     <div class="card">
       <h2>Attempt Test Tow (expected to fail)</h2>
@@ -512,8 +556,38 @@ function renderTows() {
       <div id="towTestResult" style="margin-top:10px;"></div>
     </div>
     <div class="card">
+      <h2>Create Tow Record</h2>
+      <form id="towCreateForm">
+        <div class="form-grid">
+          <div><label>Vehicle</label><select name="vehicleId" required><option value="">-- select --</option>${vehicleOptions}</select></div>
+          <div><label>Tow Reason</label><input name="towReason" required placeholder="e.g. Obstructing a fire lane"></div>
+          <div><label>Hazard Tow?</label><select name="hazardTow"><option value="">No -- requires 48hr pre-notice</option><option value="true">Yes -- immediate</option></select></div>
+          <div><label>Charges Amount</label><input name="chargesAmount" placeholder="e.g. 150.00"></div>
+        </div>
+        <button type="submit">Create Tow Record</button>
+      </form>
+    </div>
+    <div class="card">
       <h2>Tow Records (${state.tows.length})</h2>
-      <p style="color:var(--gray-4);font-size:0.9rem;">Will remain empty until the board acts and this feature is enabled.</p>
+      ${state.tows.length ? state.tows.map(t => {
+        const vehicle = state.vehicles.find(v => v.id === t.vehicleId) || {};
+        const d = t.deadlines || {};
+        return `<div class="card" style="background:var(--gray-0);margin-bottom:10px;">
+          <div class="row" style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <div>
+              <b>${esc(vehicle.plate)}</b> -- ${esc(t.towReason)} ${t.hazardTow ? '<span class="badge court">HAZARD</span>' : ''}
+              <div style="font-size:0.85rem;color:var(--gray-4);">Status: ${esc(t.status)}</div>
+            </div>
+            <div>
+              ${d.eligibleToTow ? `<div>Eligible to tow: ${deadlineBadge(d.eligibleToTow)}</div>` : ''}
+              ${d.postTowNoticeDeadline ? `<div>Post-tow notice: ${deadlineBadge(d.postTowNoticeDeadline)}</div>` : ''}
+              ${d.hearingRequestDeadline ? `<div>Hearing request window: ${deadlineBadge(d.hearingRequestDeadline)}</div>` : ''}
+              ${d.hearingScheduleDeadline ? `<div>Hearing scheduling: ${deadlineBadge(d.hearingScheduleDeadline)}</div>` : ''}
+            </div>
+          </div>
+          <div style="margin-top:8px;">${towActionForm(t)}</div>
+        </div>`;
+      }).join('') : `<p style="color:var(--gray-4);font-size:0.9rem;">No tow records yet.</p>`}
     </div>`;
 }
 
@@ -894,6 +968,42 @@ function wireEvents() {
       resultEl.innerHTML = `<div class="msg success">Correctly blocked: "${esc(err.message)}"</div>`;
     }
   };
+
+  const towCreateForm = document.getElementById('towCreateForm');
+  if (towCreateForm) towCreateForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(towCreateForm));
+    try {
+      await api('/tows', { method: 'POST', body: JSON.stringify(body) });
+      await loadAll();
+      state.msg = { type: 'success', text: 'Tow record created.' };
+    } catch (err) { state.msg = { type: 'error', text: err.message }; }
+    render();
+  };
+
+  // Generic handler for every tow state-transition form -- the action
+  // name (matching a real server endpoint) comes from data-action, so one
+  // handler covers affix/execute/mail/request/schedule/decide/release
+  // instead of seven near-identical ones.
+  root.querySelectorAll('.towActionForm').forEach(form => {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const towId = form.dataset.tow;
+      const action = form.dataset.action;
+      const body = Object.fromEntries(new FormData(form));
+      // Release form uses a "paid?" convenience select rather than asking
+      // for a raw timestamp -- translate it into the real field the API
+      // expects.
+      if (body._paid === 'yes') { body.chargesPaidAt = new Date().toISOString(); }
+      delete body._paid;
+      try {
+        await api(`/tows/${towId}/${action}`, { method: 'POST', body: JSON.stringify(body) });
+        await loadAll();
+        state.msg = { type: 'success', text: `Tow updated (${action}).` };
+      } catch (err) { state.msg = { type: 'error', text: err.message }; }
+      render();
+    };
+  });
 }
 
 loadAll().then(render).catch(err => {

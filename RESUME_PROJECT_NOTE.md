@@ -192,6 +192,13 @@ pipeline, not vendor-specific raw printer commands. Every citation
 (Administrative and Court) now gets its own citationNumber
 (FGSD-CIT-YYYY-#####) at issuance, separate from caseNumber (Court-filing
 only).
+Done: Tow's real statutory-deadline workflow (`server/towWorkflow.js`,
+`tests/towWorkflow.test.js`) -- real state machine, real 48-hour pre-tow-
+notice enforcement (previously an explicitly flagged gap), deadline
+computation for all four ECD-specified windows with ok/due-soon/overdue
+status, still fully board-gated. Known limitation: weekends are excluded
+from deadline math, holidays are not (no district holiday calendar
+available yet).
 
 Still open, roughly in priority order:
 1. **Permit expiration handling** — `expirationDate` exists but nothing
@@ -199,13 +206,10 @@ Still open, roughly in priority order:
    Permits status filter already has an "Expired" option in the
    dropdown — it just never matches anything yet, which is itself proof
    this is unbuilt.)
-2. **Tow's actual statutory-deadline workflow** — only schema + board gate
-   exist (design doc §4.12a). Lower urgency since board-gated anyway, but
-   not done.
-3. **Reporting/analytics** — no violation trend or citation-count views.
-4. **PWA/offline support** — Field Lookup was designed with the
+2. **Reporting/analytics** — no violation trend or citation-count views.
+3. **PWA/offline support** — Field Lookup was designed with the
    phone-in-hand use case in mind but isn't installable or offline-capable.
-5. Cross-module dependencies, not strictly parking-scoped, but block real
+4. Cross-module dependencies, not strictly parking-scoped, but block real
    completeness: no shared Person store, no auth/role system anywhere.
 
 ## On the horizon
