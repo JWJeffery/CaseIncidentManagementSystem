@@ -37,12 +37,20 @@ async function initDB() {
   // split, same pattern as Person/Synergy staleness tracking.
   _db.run(`CREATE TABLE IF NOT EXISTS vehicles (
     id TEXT PRIMARY KEY, plate TEXT, state TEXT, vin TEXT,
-    make TEXT, model TEXT, color TEXT, ownerPersonId TEXT,
+    make TEXT, model TEXT, year TEXT, color TEXT,
+    ownerPersonId TEXT, ownerName TEXT, ownerRelationship TEXT,
     selfReported INTEGER DEFAULT 1, dmvVerified INTEGER DEFAULT 0,
     dmvVerifiedAt TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
   );`);
 
   // Design doc §4.11 — Parking Permit. Formalizes the current spreadsheet.
+  // Field set matches what Board Policy JHFD (Student Vehicle Use) already
+  // requires the District to collect -- evidence of a valid driver's
+  // license, current vehicle registration, insurance/financial
+  // responsibility, and a displayed permit/sticker -- plus standard
+  // campus-parking-system practice: permit type (different rules/pricing/
+  // eligibility per type) and an assigned lot/zone, since "who can park
+  // where" is the actual operational question a permit answers.
   // NOTE (open, flagged in design doc §8 item 9): ECD §5(A) limits
   // administrative citation eligibility to student/district personnel,
   // while JHFD's permit language is broader. This table does not resolve
@@ -50,7 +58,13 @@ async function initDB() {
   _db.run(`CREATE TABLE IF NOT EXISTS parking_permits (
     id TEXT PRIMARY KEY, personId TEXT NOT NULL, vehicleId TEXT NOT NULL,
     permitNumber TEXT UNIQUE NOT NULL, schoolSite TEXT,
-    insuranceInfo TEXT, ownershipInfo TEXT,
+    registrantName TEXT, affiliateType TEXT,
+    studentIdNumber TEXT, employeeIdNumber TEXT,
+    driverLicenseNumber TEXT, driverLicenseState TEXT,
+    insuranceCarrier TEXT, insurancePolicyNumber TEXT, insurancePolicyExpiration TEXT,
+    ownershipInfo TEXT,
+    permitType TEXT DEFAULT 'Student',
+    parkingZone TEXT,
     issuedDate TEXT NOT NULL, expirationDate TEXT,
     status TEXT DEFAULT 'Active',
     createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
@@ -120,6 +134,31 @@ async function initDB() {
     dispositionOrAction TEXT,
     createdAt TEXT NOT NULL
   );`);
+
+  // Idempotent migrations for the schema additions above -- lets an
+  // existing dev database pick up new columns without requiring `rm -rf
+  // data`. SQLite has no "ADD COLUMN IF NOT EXISTS"; each is wrapped so a
+  // "duplicate column" error (already migrated) is silently ignored, but
+  // any other error still surfaces.
+  const migrations = [
+    `ALTER TABLE vehicles ADD COLUMN year TEXT`,
+    `ALTER TABLE vehicles ADD COLUMN ownerName TEXT`,
+    `ALTER TABLE vehicles ADD COLUMN ownerRelationship TEXT`,
+    `ALTER TABLE parking_permits ADD COLUMN registrantName TEXT`,
+    `ALTER TABLE parking_permits ADD COLUMN affiliateType TEXT`,
+    `ALTER TABLE parking_permits ADD COLUMN studentIdNumber TEXT`,
+    `ALTER TABLE parking_permits ADD COLUMN employeeIdNumber TEXT`,
+    `ALTER TABLE parking_permits ADD COLUMN driverLicenseNumber TEXT`,
+    `ALTER TABLE parking_permits ADD COLUMN driverLicenseState TEXT`,
+    `ALTER TABLE parking_permits ADD COLUMN insuranceCarrier TEXT`,
+    `ALTER TABLE parking_permits ADD COLUMN insurancePolicyNumber TEXT`,
+    `ALTER TABLE parking_permits ADD COLUMN insurancePolicyExpiration TEXT`,
+    `ALTER TABLE parking_permits ADD COLUMN permitType TEXT DEFAULT 'Student'`,
+    `ALTER TABLE parking_permits ADD COLUMN parkingZone TEXT`,
+  ];
+  for (const sql of migrations) {
+    try { _db.run(sql); } catch (e) { /* column already exists -- fine */ }
+  }
 
   _db._save();
   return _db;

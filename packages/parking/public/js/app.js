@@ -1,6 +1,6 @@
 // public/js/app.js
 const root = document.getElementById('app-root');
-let state = { tab: 'vehicles', vehicles: [], permits: [], violationCodes: [], citations: [], tows: [], dmvLog: [], msg: null };
+let state = { tab: 'vehicles', vehicles: [], permits: [], permitTypes: [], violationCodes: [], citations: [], tows: [], dmvLog: [], msg: null };
 
 async function api(path, opts) {
   const res = await fetch(`/api${path}`, {
@@ -15,10 +15,10 @@ async function api(path, opts) {
 function esc(v) { return String(v ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch])); }
 
 async function loadAll() {
-  const [vehicles, permits, violationCodes, citations, tows, dmvLog] = await Promise.all([
-    api('/vehicles'), api('/permits'), api('/violationCodes'), api('/citations'), api('/tows'), api('/dmvQueryLog'),
+  const [vehicles, permits, permitTypes, violationCodes, citations, tows, dmvLog] = await Promise.all([
+    api('/vehicles'), api('/permits'), api('/permits/types'), api('/violationCodes'), api('/citations'), api('/tows'), api('/dmvQueryLog'),
   ]);
-  Object.assign(state, { vehicles, permits, violationCodes, citations, tows, dmvLog });
+  Object.assign(state, { vehicles, permits, permitTypes, violationCodes, citations, tows, dmvLog });
 }
 
 function badgeFor(classification) {
@@ -38,20 +38,28 @@ function renderVehicles() {
           <div><label>Plate</label><input name="plate" required></div>
           <div><label>State</label><input name="state" value="OR"></div>
           <div><label>VIN</label><input name="vin"></div>
+          <div><label>Year</label><input name="year"></div>
           <div><label>Make</label><input name="make"></div>
           <div><label>Model</label><input name="model"></div>
           <div><label>Color</label><input name="color"></div>
           <div><label>Owner Person ID</label><input name="ownerPersonId" placeholder="No shared Person store yet -- free text"></div>
+          <div><label>Registered Owner Name</label><input name="ownerName" placeholder="May differ from driver -- e.g. a parent"></div>
+          <div><label>Owner Relationship to Driver</label>
+            <select name="ownerRelationship">
+              <option value="">-- select --</option>
+              <option>Self</option><option>Parent</option><option>Guardian</option><option>Other</option>
+            </select>
+          </div>
         </div>
         <button type="submit">Add Vehicle</button>
       </form>
     </div>
     <div class="card">
       <h2>Vehicles (${state.vehicles.length})</h2>
-      <table><thead><tr><th>Plate</th><th>State</th><th>Make/Model</th><th>Color</th><th>Owner</th><th>Provenance</th></tr></thead>
+      <table><thead><tr><th>Plate</th><th>State</th><th>Year/Make/Model</th><th>Color</th><th>Registered Owner</th><th>Provenance</th></tr></thead>
       <tbody>${state.vehicles.map(v => `<tr>
-        <td>${esc(v.plate)}</td><td>${esc(v.state)}</td><td>${esc(v.make)} ${esc(v.model)}</td><td>${esc(v.color)}</td>
-        <td>${esc(v.ownerPersonId)}</td>
+        <td>${esc(v.plate)}</td><td>${esc(v.state)}</td><td>${esc(v.year)} ${esc(v.make)} ${esc(v.model)}</td><td>${esc(v.color)}</td>
+        <td>${esc(v.ownerName)}${v.ownerRelationship ? ` (${esc(v.ownerRelationship)})` : ''}</td>
         <td>${v.dmvVerified ? 'DMV-verified' : 'Self-reported'}</td>
       </tr>`).join('') || `<tr><td colspan="6">No vehicles yet.</td></tr>`}</tbody></table>
     </div>`;
@@ -59,16 +67,37 @@ function renderVehicles() {
 
 function renderPermits() {
   const vehicleOptions = state.vehicles.map(v => `<option value="${v.id}">${esc(v.plate)} (${esc(v.make)} ${esc(v.model)})</option>`).join('');
+  const permitTypeOptions = state.permitTypes.map(t => `<option>${esc(t)}</option>`).join('');
   return `
     <div class="card">
       <h2>Issue Parking Permit</h2>
+      <p style="margin-bottom:10px;color:var(--gray-4);font-size:0.85rem;">
+        Fields match what Board Policy JHFD already requires the District to collect for student vehicle registration
+        (valid driver's license, current registration, insurance/financial responsibility), plus standard permit
+        type and lot/zone assignment.
+      </p>
       <form id="permitForm">
         <div class="form-grid">
           <div><label>Person ID</label><input name="personId" required placeholder="No shared Person store yet -- free text"></div>
+          <div><label>Registrant Name</label><input name="registrantName" required></div>
+          <div><label>Affiliate Type</label>
+            <select name="affiliateType">
+              <option value="">-- select --</option>
+              <option>Student</option><option>Staff</option><option>Volunteer</option><option>Other</option>
+            </select>
+          </div>
+          <div><label>Student ID Number</label><input name="studentIdNumber"></div>
+          <div><label>Employee ID Number</label><input name="employeeIdNumber"></div>
           <div><label>Vehicle</label><select name="vehicleId" required><option value="">-- select --</option>${vehicleOptions}</select></div>
+          <div><label>Driver License Number</label><input name="driverLicenseNumber"></div>
+          <div><label>Driver License State</label><input name="driverLicenseState" value="OR"></div>
+          <div><label>Insurance Carrier</label><input name="insuranceCarrier"></div>
+          <div><label>Insurance Policy Number</label><input name="insurancePolicyNumber"></div>
+          <div><label>Insurance Policy Expiration</label><input name="insurancePolicyExpiration" type="date"></div>
+          <div><label>Permit Type</label><select name="permitType">${permitTypeOptions}</select></div>
+          <div><label>Parking Zone / Lot</label><input name="parkingZone" placeholder="e.g. Lot A - Student"></div>
           <div><label>School Site</label><input name="schoolSite"></div>
-          <div><label>Insurance Info</label><input name="insuranceInfo"></div>
-          <div><label>Ownership Info</label><input name="ownershipInfo"></div>
+          <div><label>Ownership Info</label><input name="ownershipInfo" placeholder="Notes if vehicle isn't registrant's own"></div>
           <div><label>Expiration Date</label><input name="expirationDate" type="date"></div>
         </div>
         <button type="submit">Issue Permit</button>
@@ -76,12 +105,14 @@ function renderPermits() {
     </div>
     <div class="card">
       <h2>Permits (${state.permits.length})</h2>
-      <table><thead><tr><th>Permit #</th><th>Person</th><th>Vehicle</th><th>School</th><th>Status</th></tr></thead>
+      <table><thead><tr><th>Permit #</th><th>Registrant</th><th>Type</th><th>Vehicle</th><th>Zone</th><th>School</th><th>Status</th></tr></thead>
       <tbody>${state.permits.map(p => `<tr>
-        <td>${esc(p.permitNumber)}</td><td>${esc(p.personId)}</td>
+        <td>${esc(p.permitNumber)}</td><td>${esc(p.registrantName) || esc(p.personId)}</td>
+        <td>${esc(p.permitType)}</td>
         <td>${esc((state.vehicles.find(v => v.id === p.vehicleId) || {}).plate)}</td>
+        <td>${esc(p.parkingZone)}</td>
         <td>${esc(p.schoolSite)}</td><td>${esc(p.status)}</td>
-      </tr>`).join('') || `<tr><td colspan="5">No permits yet.</td></tr>`}</tbody></table>
+      </tr>`).join('') || `<tr><td colspan="7">No permits yet.</td></tr>`}</tbody></table>
     </div>`;
 }
 

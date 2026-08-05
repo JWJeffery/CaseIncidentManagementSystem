@@ -32,7 +32,7 @@ body { font-family: var(--font-ui); color: var(--text); background: var(--gray-0
 .app-container { max-width: 1200px; margin: 0 auto; padding: 20px; }
 
 .tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
-.tab-btn { padding: 8px 14px; border: 1px solid var(--gray-2); background: var(--white); border-radius: var(--radius); cursor: pointer; font-family: var(--font-ui); }
+.tab-btn { padding: 8px 14px; border: 1px solid var(--gray-2); background: var(--white); color: var(--text); border-radius: var(--radius); cursor: pointer; font-family: var(--font-ui); }
 .tab-btn.active { background: var(--navy); color: var(--white); border-color: var(--navy); }
 
 .panel { display: none; }

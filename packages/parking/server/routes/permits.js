@@ -4,6 +4,15 @@ const router = express.Router();
 const { db } = require('../db');
 const { v4: uuidv4 } = require('uuid');
 
+// Standard campus-parking-system permit categories. Each typically carries
+// different eligibility, pricing, and lot/zone assignment rules -- this is
+// the field that answers "what kind of permit is this," separate from
+// affiliateType (who the registrant is) and parkingZone (where they park).
+const PERMIT_TYPES = [
+  'Student', 'Faculty/Staff', 'Visitor', 'Vendor/Contractor',
+  'ADA/Accessible', 'Temporary', 'Reserved',
+];
+
 function nextPermitNumber() {
   const year = new Date().getFullYear();
   const prefix = `PERMIT-${year}-`;
@@ -15,17 +24,21 @@ function nextPermitNumber() {
   return `${prefix}${String(nextSeq).padStart(4, '0')}`;
 }
 
-// GET /api/permits - list, optional personId/vehicleId/status filter
+// GET /api/permits - list, optional personId/vehicleId/status/permitType filter
 router.get('/', (req, res) => {
-  const { personId, vehicleId, status } = req.query;
+  const { personId, vehicleId, status, permitType } = req.query;
   let sql = 'SELECT * FROM parking_permits WHERE 1=1';
   const params = [];
   if (personId) { sql += ' AND personId = ?'; params.push(personId); }
   if (vehicleId) { sql += ' AND vehicleId = ?'; params.push(vehicleId); }
   if (status) { sql += ' AND status = ?'; params.push(status); }
+  if (permitType) { sql += ' AND permitType = ?'; params.push(permitType); }
   sql += ' ORDER BY issuedDate DESC';
   res.json(db.prepare(sql).all(...params));
 });
+
+// GET /api/permits/types -- so the UI doesn't hardcode this list separately
+router.get('/types', (req, res) => res.json(PERMIT_TYPES));
 
 // GET /api/permits/active-for-vehicle/:vehicleId
 // Convenience lookup: does this vehicle have a currently-active permit?
@@ -46,10 +59,20 @@ router.get('/:id', (req, res) => {
 });
 
 // POST /api/permits
+// Field set matches what Board Policy JHFD already requires the District
+// to collect for student vehicle registration (valid driver's license,
+// current vehicle registration, insurance/financial responsibility) plus
+// standard campus-parking-system practice (permit type, assigned zone).
+// Driver license number and insurance policy number are sensitive PII --
+// same handling posture as DMV2U "Personal Information" elsewhere in this
+// module (design doc §4.13) -- not encrypted at rest here yet (sql.js has
+// no column-level encryption), which is worth flagging as a real gap
+// before this goes anywhere near production data, not glossed over.
 router.post('/', (req, res) => {
   if (!req.body.personId || !req.body.vehicleId) {
     return res.status(400).json({ error: 'personId and vehicleId are required.' });
   }
+  const permitType = PERMIT_TYPES.includes(req.body.permitType) ? req.body.permitType : 'Student';
   const id = uuidv4();
   const now = new Date().toISOString();
   const data = {
@@ -58,8 +81,18 @@ router.post('/', (req, res) => {
     vehicleId: req.body.vehicleId,
     permitNumber: nextPermitNumber(),
     schoolSite: req.body.schoolSite || '',
-    insuranceInfo: req.body.insuranceInfo || '',
+    registrantName: req.body.registrantName || '',
+    affiliateType: req.body.affiliateType || '',
+    studentIdNumber: req.body.studentIdNumber || '',
+    employeeIdNumber: req.body.employeeIdNumber || '',
+    driverLicenseNumber: req.body.driverLicenseNumber || '',
+    driverLicenseState: req.body.driverLicenseState || 'OR',
+    insuranceCarrier: req.body.insuranceCarrier || '',
+    insurancePolicyNumber: req.body.insurancePolicyNumber || '',
+    insurancePolicyExpiration: req.body.insurancePolicyExpiration || null,
     ownershipInfo: req.body.ownershipInfo || '',
+    permitType,
+    parkingZone: req.body.parkingZone || '',
     issuedDate: req.body.issuedDate || now,
     expirationDate: req.body.expirationDate || null,
     status: req.body.status || 'Active',
@@ -68,9 +101,17 @@ router.post('/', (req, res) => {
   };
   db.prepare(`
     INSERT INTO parking_permits (id, personId, vehicleId, permitNumber, schoolSite,
-      insuranceInfo, ownershipInfo, issuedDate, expirationDate, status, createdAt, updatedAt)
+      registrantName, affiliateType, studentIdNumber, employeeIdNumber,
+      driverLicenseNumber, driverLicenseState,
+      insuranceCarrier, insurancePolicyNumber, insurancePolicyExpiration,
+      ownershipInfo, permitType, parkingZone,
+      issuedDate, expirationDate, status, createdAt, updatedAt)
     VALUES ($id, $personId, $vehicleId, $permitNumber, $schoolSite,
-      $insuranceInfo, $ownershipInfo, $issuedDate, $expirationDate, $status, $createdAt, $updatedAt)
+      $registrantName, $affiliateType, $studentIdNumber, $employeeIdNumber,
+      $driverLicenseNumber, $driverLicenseState,
+      $insuranceCarrier, $insurancePolicyNumber, $insurancePolicyExpiration,
+      $ownershipInfo, $permitType, $parkingZone,
+      $issuedDate, $expirationDate, $status, $createdAt, $updatedAt)
   `).run(data);
   res.json({ id, permitNumber: data.permitNumber });
 });
@@ -78,7 +119,12 @@ router.post('/', (req, res) => {
 // PATCH /api/permits/:id
 router.patch('/:id', (req, res) => {
   const now = new Date().toISOString();
-  const allowed = ['schoolSite', 'insuranceInfo', 'ownershipInfo', 'expirationDate', 'status'];
+  const allowed = [
+    'schoolSite', 'registrantName', 'affiliateType', 'studentIdNumber', 'employeeIdNumber',
+    'driverLicenseNumber', 'driverLicenseState',
+    'insuranceCarrier', 'insurancePolicyNumber', 'insurancePolicyExpiration',
+    'ownershipInfo', 'permitType', 'parkingZone', 'expirationDate', 'status',
+  ];
   const updates = [];
   const params = [];
   for (const key of allowed) {

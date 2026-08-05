@@ -42,18 +42,27 @@ async function run() {
   // personId values here are placeholder strings, not real Person records.
   const demoVehicleId = uuidv4();
   const now = new Date().toISOString();
-  db.prepare(`INSERT OR IGNORE INTO vehicles (id, plate, state, vin, make, model, color, ownerPersonId,
+  db.prepare(`INSERT OR IGNORE INTO vehicles (id, plate, state, vin, make, model, year, color,
+      ownerPersonId, ownerName, ownerRelationship,
       selfReported, dmvVerified, dmvVerifiedAt, createdAt, updatedAt)
-    VALUES ($id, 'DEMO123', 'OR', '1FADP3F20EL123456', 'Ford', 'Focus', 'Blue', 'demo-person-1',
-      1, 0, NULL, $now, $now)`).run({ id: demoVehicleId, now });
+    VALUES ($id, 'DEMO123', 'OR', '1FADP3F20EL123456', 'Ford', 'Focus', '2021', 'Blue',
+      'demo-person-1', 'Pat Demo (Parent)', 'Parent', 1, 0, NULL, $now, $now)`).run({ id: demoVehicleId, now });
 
   db.prepare(`INSERT OR IGNORE INTO parking_permits (id, personId, vehicleId, permitNumber, schoolSite,
-      insuranceInfo, ownershipInfo, issuedDate, expirationDate, status, createdAt, updatedAt)
+      registrantName, affiliateType, studentIdNumber, employeeIdNumber,
+      driverLicenseNumber, driverLicenseState,
+      insuranceCarrier, insurancePolicyNumber, insurancePolicyExpiration,
+      ownershipInfo, permitType, parkingZone,
+      issuedDate, expirationDate, status, createdAt, updatedAt)
     VALUES ($id, 'demo-person-1', $vehicleId, 'PERMIT-2026-0001', 'Forest Grove High School',
-      'Demo insurance carrier, policy #DEMO', 'Registered to demo-person-1', $now, NULL, 'Active', $now, $now)`)
+      'Demo Student', 'Student', 'S1234567', '',
+      'DEMO1234D', 'OR',
+      'Demo Mutual Insurance', 'POL-DEMO-0001', '2026-12-31',
+      'Registered to parent (see Vehicle record)', 'Student', 'Lot A - Student',
+      $now, NULL, 'Active', $now, $now)`)
     .run({ id: uuidv4(), vehicleId: demoVehicleId, now });
 
-  console.log('✓ Demo vehicle + active permit seeded (for Administrative-track citation testing)');
+  console.log('✓ Demo vehicle + active Student permit seeded (for Administrative-track citation testing)');
   console.log('\n✅ All parking module seed data complete. Run: npm run parking\n');
 }
 

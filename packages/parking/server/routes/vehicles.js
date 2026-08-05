@@ -36,8 +36,17 @@ router.post('/', (req, res) => {
     vin: req.body.vin || '',
     make: req.body.make || '',
     model: req.body.model || '',
+    year: req.body.year || '',
     color: req.body.color || '',
     ownerPersonId: req.body.ownerPersonId || '',
+    // Many student-driven vehicles are registered to a parent/guardian,
+    // not the student -- JHFD's registration requirement is about the
+    // vehicle's actual registered owner, which is frequently a different
+    // person than the driver/registrant on the Permit. Captured here as
+    // free text (name + relationship) since there's no shared Person
+    // store yet for the owner to reference by ID.
+    ownerName: req.body.ownerName || '',
+    ownerRelationship: req.body.ownerRelationship || '',
     // Provenance split per design doc §4.10 -- self-reported (permit
     // application) vs. DMV-verified (a DMV2U query). Defaults to
     // self-reported; only a DMV query flips this via PATCH.
@@ -48,9 +57,11 @@ router.post('/', (req, res) => {
     updatedAt: now,
   };
   db.prepare(`
-    INSERT INTO vehicles (id, plate, state, vin, make, model, color, ownerPersonId,
+    INSERT INTO vehicles (id, plate, state, vin, make, model, year, color,
+      ownerPersonId, ownerName, ownerRelationship,
       selfReported, dmvVerified, dmvVerifiedAt, createdAt, updatedAt)
-    VALUES ($id, $plate, $state, $vin, $make, $model, $color, $ownerPersonId,
+    VALUES ($id, $plate, $state, $vin, $make, $model, $year, $color,
+      $ownerPersonId, $ownerName, $ownerRelationship,
       $selfReported, $dmvVerified, $dmvVerifiedAt, $createdAt, $updatedAt)
   `).run(data);
   res.json({ id });
@@ -63,8 +74,9 @@ router.post('/', (req, res) => {
 // note that every DMV2U inquiry must be documented).
 router.patch('/:id', (req, res) => {
   const now = new Date().toISOString();
-  const allowed = ['plate', 'state', 'vin', 'make', 'model', 'color',
-    'ownerPersonId', 'selfReported', 'dmvVerified', 'dmvVerifiedAt'];
+  const allowed = ['plate', 'state', 'vin', 'make', 'model', 'year', 'color',
+    'ownerPersonId', 'ownerName', 'ownerRelationship',
+    'selfReported', 'dmvVerified', 'dmvVerifiedAt'];
   const updates = [];
   const params = [];
   for (const key of allowed) {
