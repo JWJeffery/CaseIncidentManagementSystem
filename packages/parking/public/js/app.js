@@ -1173,3 +1173,17 @@ function wireEvents() {
 loadAll().then(render).catch(err => {
   root.innerHTML = `<div class="msg error">Failed to load: ${esc(err.message)}</div>`;
 });
+
+// Installability only -- see service-worker.js's header comment. This
+// registration failing (e.g. an older browser, or serving over plain
+// HTTP where service workers are disallowed) should never block the app
+// itself from working, so it's fire-and-forget with its own error
+// handling, not awaited by anything above.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js').catch((err) => {
+      console.warn('Service worker registration failed (app still works normally without it):', err);
+    });
+  });
+}
+

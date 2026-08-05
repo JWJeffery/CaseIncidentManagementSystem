@@ -1,0 +1,15 @@
+{
+  "name": "FGSD Parking / Citation System",
+  "short_name": "FGSD Parking",
+  "description": "Forest Grove School District parking permits, citations, and enforcement.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8f9fa",
+  "theme_color": "#1a2744",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

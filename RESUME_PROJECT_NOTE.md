@@ -218,17 +218,31 @@ Done: Reporting/analytics (`routes/reports.js`, real SQL GROUP BY
 aggregation) -- Citations by violation/type/status/month/officer/location
 (with an optional date-range filter), Permits by type/status, Tows by
 status, all in a new lazily-loaded Reports tab with plain-CSS bar
-visualization. This was the last strictly parking-specific item on the
-checklist.
+visualization.
+Done: PWA installability (`public/manifest.json`, `public/service-worker.js`,
+`public/icons/`) -- installable to homescreen, NOT offline-data-capable.
+Scope confirmed explicitly with Josh: "No offline data handling other
+than reunification." The service worker only caches the static app
+shell; it deliberately never intercepts `/api/` requests.
 
-Still open, roughly in priority order:
-1. **PWA/offline support** — Field Lookup was designed with the
-   phone-in-hand use case in mind but isn't installable or offline-capable.
-   This is more infrastructure than feature (service worker, manifest,
-   offline data strategy) — worth discussing scope with Josh before
-   starting, not just building blind.
-2. Cross-module dependencies, not strictly parking-scoped, but block real
-   completeness: no shared Person store, no auth/role system anywhere.
+**All strictly parking-specific items on the finish checklist are now
+done.** What remains are two cross-cutting gaps that were never
+parking's alone to fix:
+1. No shared Person store — `parking` and `case-management` both use
+   free-text `personId` strings with no cross-reference. Design doc's
+   biggest unbuilt piece (§4.1); blocks real cross-module linkage (e.g.
+   an Exclusion check at citation time).
+2. No auth/role system exists anywhere in the monorepo. Several places
+   (Applications approve/reject, Staff roster itself) note this
+   explicitly — the system tracks WHO performed an action (via the Staff
+   roster) but doesn't yet gate WHO CAN.
+
+Per the standing rule (finish each module before moving to the next),
+the next conversation should either (a) tackle one of these two
+cross-cutting gaps, since parking itself is now functionally complete,
+or (b) get Josh's explicit sign-off to move to a different module
+entirely (Injury Reports, Central Counter Service, etc.) before parking
+is treated as fully "finished" in the cross-module sense.
 
 ## On the horizon
 
