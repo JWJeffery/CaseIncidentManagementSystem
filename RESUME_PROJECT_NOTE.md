@@ -112,6 +112,13 @@ handled as a first-class architectural concern, not an afterthought.
     member immediately blocks them from being used for new actions. New
     "Staff" tab in the UI; a `staffOptions()`/`staffName()` helper drives
     every dropdown that used to be free text.
+  - `packages/console/` (added 2026-08-05) — main launcher, port 3003.
+    Intentionally minimal for now: a page listing all four modules with
+    live up/down status (checked server-side, parallel, 1.5s timeout each)
+    and a link to open each one. Josh's explicit direction: this will grow
+    into a real dashboard later — don't over-build it now. Module registry
+    lives in `server/modules.js` (single source of truth — the frontend
+    renders from `GET /api/modules`, nothing is hardcoded twice).
   - `packages/shared/` (`@fgsd/shared`) — Incident Number (lifetime
     sequence, `FGSD-#######`) / Case Number (annual reset,
     `FGSD-YYYY-#####`) formatting; records classification enum + disclosure

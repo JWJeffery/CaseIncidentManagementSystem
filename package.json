@@ -8,7 +8,8 @@
     "packages/case-management",
     "packages/reunification",
     "packages/parking",
-    "packages/identity"
+    "packages/identity",
+    "packages/console"
   ],
   "scripts": {
     "case-management": "npm run start --workspace packages/case-management",
@@ -20,6 +21,7 @@
     "parking:test": "npm run test --workspace packages/parking",
     "identity": "npm run start --workspace packages/identity",
     "identity:seed": "npm run seed --workspace packages/identity",
-    "identity:test": "npm run test --workspace packages/identity"
+    "identity:test": "npm run test --workspace packages/identity",
+    "console": "npm run start --workspace packages/console"
   }
 }

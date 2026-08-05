@@ -19,24 +19,56 @@ packages/
                      classification, board-authority feature flags.
                      Node/CommonJS. Consumed by case-management directly;
                      see "Open question" below re: browser-side sharing.
-  case-management/   Express + sql.js backend. Case → Persons → Notes →
-                     Violations → Documents. Formerly the standalone
-                     CaseIncidentManagementSystem repo.
+  case-management/   Express + sql.js backend, port 3000. Case → Persons →
+                     Notes → Violations → Documents. Formerly the
+                     standalone CaseIncidentManagementSystem repo.
   reunification/     Client-side reunification card workflow (claimant
                      entry → SIS match/approval → reunifier handoff →
                      release). Formerly the standalone Reunification repo.
-                     No backend currently — static files served directly.
+                     No backend — static files served via Python, port 8000.
+  parking/           Express + sql.js backend, port 3001. Vehicle permits
+                     (school-year auto-expiring), Citations (Administrative
+                     live, Court board-gated), Towing (board-gated), DMV2U
+                     query log, reporting.
+  identity/          Express + sql.js backend, port 3002. Person / Vehicle /
+                     Location master files, NCIC/LEDS-inspired structure.
+                     parking's Vehicle references are wired to this
+                     service (Phase 2, done); case-management is not wired
+                     to it yet.
+  console/           Express server, port 3003. Main launcher — a page
+                     listing every module above with live up/down status
+                     and a link to open it. Intentionally minimal for now;
+                     will grow into a real dashboard later.
 ```
 
 ## Running things
 
 ```bash
-npm install                    # installs all three workspaces
+npm install                    # installs all workspaces
+
+npm run console                # starts the main launcher (start here)
+
 npm run case-management        # starts the case-management Express server
 npm run case-management:seed   # seeds case-management demo data
+
 npm run reunification          # starts reunification's static file server
 npm run reunification:test     # runs reunification's test suite
+
+npm run identity:seed          # seeds identity demo data — do this FIRST
+npm run identity               # starts the identity Express server
+
+npm run parking:seed           # seeds parking demo data — requires identity
+                                # to already be seeded and running (see below)
+npm run parking                # starts the parking Express server
+npm run parking:test           # runs parking's test suites
 ```
+
+**Startup order matters as of the identity service wiring**: `parking`
+now creates and looks up vehicle data through `identity`'s API rather
+than a local table, so `identity` needs to be seeded and running before
+`parking` is seeded or used. Recommended order: `identity:seed` →
+`identity` (leave running) → `parking:seed` → `parking`.
+
 
 ## Open architectural question — flagging, not deciding silently
 
