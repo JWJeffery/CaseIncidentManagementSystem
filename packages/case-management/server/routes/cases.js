@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { v4: uuidv4 } = require('uuid');
+const { identityFetch } = require('@fgsd/shared');
 
 // Generate next case number
 function nextCaseNumber() {
@@ -17,29 +18,54 @@ function nextCaseNumber() {
 }
 
 // GET /api/cases - list with optional search/filter
-router.get('/', (req, res) => {
-  const { search, status } = req.query;
-  let sql = `
-    SELECT c.*,
-      (SELECT firstName || ' ' || lastName FROM persons p
-       JOIN case_persons cp ON cp.personId = p.id
-       WHERE cp.caseId = c.id AND cp.role = 'subject' LIMIT 1) AS subjectName
-    FROM cases c
-    WHERE 1=1
-  `;
-  const params = [];
-  if (status && status !== 'all') {
-    sql += ` AND c.status = ?`;
-    params.push(status);
+// subjectName used to come from a SQL JOIN against the local persons
+// table -- now that person data lives in the Identity Service, that
+// join is impossible (it's a different database entirely), so this
+// batch-fetches subject names from Identity in one call after the local
+// case query, rather than N+1 individual lookups per case.
+router.get('/', async (req, res) => {
+  try {
+    const { search, status } = req.query;
+    let sql = `SELECT c.* FROM cases c WHERE 1=1`;
+    const params = [];
+    if (status && status !== 'all') {
+      sql += ` AND c.status = ?`;
+      params.push(status);
+    }
+    if (search) {
+      sql += ` AND (c.caseNumber LIKE ? OR c.schoolSite LIKE ? OR c.incidentType LIKE ?
+                OR c.assignedTo LIKE ? OR c.createdBy LIKE ?)`;
+      const s = `%${search}%`;
+      params.push(s, s, s, s, s);
+    }
+    sql += ` ORDER BY c.createdAt DESC`;
+    const cases = db.prepare(sql).all(...params);
+
+    if (!cases.length) return res.json([]);
+
+    const caseIds = cases.map(c => c.id);
+    const subjectLinks = db.prepare(`
+      SELECT caseId, personId FROM case_persons
+      WHERE role = 'subject' AND caseId IN (${caseIds.map(() => '?').join(',')})
+    `).all(...caseIds);
+    // Only the first subject per case, matching the old query's LIMIT 1
+    // behavior -- a case can technically have more than one 'subject'
+    // link, but the list view only ever showed one name.
+    const firstSubjectByCase = new Map();
+    for (const link of subjectLinks) {
+      if (!firstSubjectByCase.has(link.caseId)) firstSubjectByCase.set(link.caseId, link.personId);
+    }
+    const personIds = [...new Set(firstSubjectByCase.values())];
+    const people = personIds.length ? await identityFetch(`/api/persons?ids=${personIds.join(',')}`) : [];
+    const nameById = new Map(people.map(p => [p.id, `${p.firstName} ${p.lastName}`]));
+
+    res.json(cases.map(c => ({
+      ...c,
+      subjectName: firstSubjectByCase.has(c.id) ? (nameById.get(firstSubjectByCase.get(c.id)) || null) : null,
+    })));
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
-  if (search) {
-    sql += ` AND (c.caseNumber LIKE ? OR c.schoolSite LIKE ? OR c.incidentType LIKE ?
-              OR c.assignedTo LIKE ? OR c.createdBy LIKE ?)`;
-    const s = `%${search}%`;
-    params.push(s, s, s, s, s);
-  }
-  sql += ` ORDER BY c.createdAt DESC`;
-  res.json(db.prepare(sql).all(...params));
 });
 
 // GET /api/cases/:id

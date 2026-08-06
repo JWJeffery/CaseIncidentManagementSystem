@@ -4,6 +4,7 @@ const router = express.Router();
 const { db } = require('../db');
 const { v4: uuidv4 } = require('uuid');
 const { identityFetch } = require('@fgsd/shared');
+const { flatten: flattenPerson } = require('./persons');
 
 const DISTRICT_PROPERTIES = [
   { name: 'District Office', address: '1728 Main Street, Forest Grove, OR 97116' },
@@ -65,41 +66,57 @@ router.get('/case/:caseId', (req, res) => {
 });
 
 // POST /api/documents/generate-exclusion
-router.post('/generate-exclusion', (req, res) => {
-  const { caseId, subjectPersonId, noticeType, issuingOfficial, officialTitle,
-    employeeId, agency, issuedDate, violationIds, vehicleInfo, otherInfo } = req.body;
+router.post('/generate-exclusion', async (req, res) => {
+  try {
+    const { caseId, subjectPersonId, noticeType, issuingOfficial, officialTitle,
+      employeeId, agency, issuedDate, violationIds, vehicleInfo, otherInfo } = req.body;
 
-  const caseData = db.prepare('SELECT * FROM cases WHERE id = ?').get(caseId);
-  if (!caseData) return res.status(404).json({ error: 'Case not found' });
+    const caseData = db.prepare('SELECT * FROM cases WHERE id = ?').get(caseId);
+    if (!caseData) return res.status(404).json({ error: 'Case not found' });
 
-  let subject = null;
-  if (subjectPersonId) {
-    subject = db.prepare('SELECT * FROM persons WHERE id = ?').get(subjectPersonId);
+    let subject = null;
+    if (subjectPersonId) {
+      // Person biographic data now lives in the Identity Service -- see
+      // routes/persons.js's flatten(), reused here so this document
+      // generator doesn't maintain a second, separately-drifting version
+      // of the same flattening logic. Soft-fail on its own: if Identity
+      // is briefly unreachable, the notice still generates without
+      // subject details rather than failing the whole request.
+      try {
+        const raw = await identityFetch(`/api/persons/${subjectPersonId}`);
+        subject = flattenPerson(raw);
+      } catch (err) {
+        console.warn(`Exclusion notice generation: could not fetch subject ${subjectPersonId} from Identity Service:`, err.message);
+      }
+    }
+
+    const violations = (violationIds && violationIds.length)
+      ? db.prepare(`SELECT * FROM violations WHERE id IN (${violationIds.map(() => '?').join(',')})`)
+          .all(...violationIds)
+      : db.prepare('SELECT * FROM violations WHERE caseId = ?').all(caseId);
+
+    const incidentDate = caseData.incidentAt ? new Date(caseData.incidentAt) : new Date();
+    const isExclusion = noticeType === 'exclusion';
+
+    const html = generateNoticeHTML({
+      caseData, subject, violations, incidentDate,
+      isExclusion, issuingOfficial, officialTitle,
+      employeeId, agency, issuedDate, vehicleInfo, otherInfo
+    });
+
+    const docId = uuidv4();
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO documents (id, caseId, documentType, generatedAt, generatedBy, storedContent)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(docId, caseId, isExclusion ? 'exclusion_notice' : 'cease_desist_notice',
+      now, issuingOfficial || '', html);
+
+    res.json({ id: docId, html });
+  } catch (err) {
+    console.error('POST /api/documents/generate-exclusion failed:', err);
+    res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Internal error generating notice.', detail: err.message });
   }
-
-  const violations = (violationIds && violationIds.length)
-    ? db.prepare(`SELECT * FROM violations WHERE id IN (${violationIds.map(() => '?').join(',')})`)
-        .all(...violationIds)
-    : db.prepare('SELECT * FROM violations WHERE caseId = ?').all(caseId);
-
-  const incidentDate = caseData.incidentAt ? new Date(caseData.incidentAt) : new Date();
-  const isExclusion = noticeType === 'exclusion';
-
-  const html = generateNoticeHTML({
-    caseData, subject, violations, incidentDate,
-    isExclusion, issuingOfficial, officialTitle,
-    employeeId, agency, issuedDate, vehicleInfo, otherInfo
-  });
-
-  const docId = uuidv4();
-  const now = new Date().toISOString();
-  db.prepare(`
-    INSERT INTO documents (id, caseId, documentType, generatedAt, generatedBy, storedContent)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(docId, caseId, isExclusion ? 'exclusion_notice' : 'cease_desist_notice',
-    now, issuingOfficial || '', html);
-
-  res.json({ id: docId, html });
 });
 
 // GET /api/documents/:id/html

@@ -352,28 +352,70 @@ is treated as fully "finished" in the cross-module sense.
    Reunification repo to free a slot.
 4. **Identity wiring, remaining pieces.** `parking`'s Vehicle references
    are done (see `packages/identity/` note above — Phase 2 vehicle wiring
-   complete, 2026-08-05). Still open:
-   - `parking`'s Person references (`personId` on Citation, Permit,
+   complete, 2026-08-05). `case-management`'s Person references are also
+   done now (2026-08-06 — see below). Still open:
+   - **`parking`'s Person references** (`personId` on Citation, Permit,
      PermitApplication, Vehicle ownership fields left unset during
      application approval) are still free text, not wired to Identity's
-     Person Master File. Same live-query decision applies once started.
-   - `case-management`'s Vehicle wiring: **done (2026-08-06)**, but turned
-     out to be a much smaller task than parking's — case-management has
-     no real Vehicle entity of its own at all, only a free-text
+     Person Master File. This is the one clearly remaining piece of
+     identity-wiring scope. Same live-query decision applies once
+     started; `case-management`'s Person wiring (below) is the closer
+     model to follow than parking's Vehicle wiring was, since parking
+     never had a real local Person implementation to migrate FROM the
+     way case-management did — parking's Person wiring will look more
+     like "build the link from nothing" than "migrate an existing table."
+   - `case-management`'s Vehicle wiring: **done (2026-08-06)** — turned
+     out to be a much smaller task than parking's, since case-management
+     has no real Vehicle entity of its own at all, only a free-text
      `vehicleInfo` block (type/state/regId/description) on the Exclusion
      Notice document generator. Added `GET /api/documents/vehicle-lookup?plate=`
      as a convenience autofill against Identity, NOT a live-linked
      record — an exclusion notice's vehicle mention is genuinely optional
      context (a visitor's car, a one-time contact), so requiring an
      Identity match would have been the wrong shape. Manual entry stays
-     fully available either way. `case-management`'s Person references
-     are still untouched — that's the real remaining lift.
+     fully available either way.
+   - **`case-management`'s Person wiring: done (2026-08-06).** This one
+     WAS a substantial migration, unlike Vehicle — case-management had a
+     real, substantial local `persons` table (biographic fields nearly
+     identical to Identity's own schema) plus a `case_persons` role-link
+     table. Now deprecated/unused, matching the vehicles-table precedent.
+     `routes/persons.js` rewritten as a proxy + flattener, same pattern
+     as parking's Vehicle proxy. Real semantic conflict resolved
+     deliberately, not papered over: case-management's `personType`
+     (visitor/parent_guardian/outsider/unknown — contextual, per-incident)
+     is NOT the same thing as Identity's `personType`
+     (Student/Staff/Volunteer/Visitor/Other — a durable district
+     relationship); forcing one enum onto the other would lose real
+     information, so `personType` stays case-management-LOCAL (new
+     `person_local_info` table, alongside phone/address/city/state/zip/
+     notes — genuinely local operational data, not identity data).
+     `idType`/`idNumber` map onto Identity's structured
+     `person_identifiers` instead of staying flat duplicate columns.
+     Identity's own `GET /api/persons` gained a `?ids=a,b,c` batch-fetch
+     to avoid N+1 lookups for list views (case list subject names,
+     case-detail person rosters) — caught and fixed a real bug in it
+     first (`?ids=` with an empty value is falsy in JS, so the initial
+     `if (ids)` guard fell through to "return everything" instead of
+     "return nothing").
+     **Real crash risk caught before it shipped**: converting
+     case-management's routes to `async` (required to call out to
+     Identity) recreated the exact unhandled-promise-rejection-kills-the-
+     process failure mode already documented below from parking's earlier
+     bug-fix — case-management had zero async routes before this, so it
+     had never been exposed to that risk. Fixed with the same pattern
+     already used in parking: try/catch on every async route, plus the
+     same global error middleware + `unhandledRejection` listener added
+     to `index.js`.
+     Also caught and fixed the identical seed-script idempotency bug
+     (`INSERT OR IGNORE` on a table keyed by a fresh UUID, same root
+     cause as identity's own seed.js bug below) in `case_persons` linking
+     while directly touching that code.
    - **Consolidated `identityClient.js` into `@fgsd/shared`** while doing
-     the above (it was about to be duplicated a second time for
-     case-management) — moved from `packages/parking`, all of parking's
-     consumers updated to import from `@fgsd/shared` instead, local copy
-     deleted. Both `parking` and `case-management` now depend on
-     `@fgsd/shared` for this.
+     the Vehicle-wiring work above (it was about to be duplicated a
+     second time for case-management) — moved from `packages/parking`,
+     all of parking's consumers updated to import from `@fgsd/shared`
+     instead, local copy deleted. Both `parking` and `case-management`
+     now depend on `@fgsd/shared` for this.
    - **Person-linkage policy, settled 2026-08-06 — see "Legal/compliance
      foundation" section above for the full decision.** Short version:
      `personId` on a citation/case is never required to resolve to an
@@ -382,8 +424,10 @@ is treated as fully "finished" in the cross-module sense.
      action (search-and-link, or a real Add Person with real fields), not
      a side effect of submitting a citation or case. This was the
      blocking design question before Person wiring could start — it's
-     resolved now, so Person wiring itself is unblocked whenever it's
-     prioritized.
+     resolved now, and case-management's Person wiring (above) is the
+     first real proof this policy works in practice: nothing in that
+     migration required or assumed every person resolves to a "real"
+     Identity file, and none was silently fabricated.
 5. **Document upload is a labeled PROTOTYPE, not production-ready** —
    `packages/parking/server/routes/attachments.js` + `document_attachments`
    table. Local disk storage, no encryption at rest, no access control, no

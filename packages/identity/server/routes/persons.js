@@ -19,7 +19,17 @@ function attachDetails(person) {
 // search matches last/first name or any alias or any identifier value --
 // the "one query fans out across everything on file" pattern.
 router.get('/', (req, res) => {
-  const { search, personType } = req.query;
+  const { search, personType, ids } = req.query;
+  if (ids !== undefined) {
+    // Batch fetch by ID list -- avoids N+1 individual lookups for
+    // consumers that need to resolve a known set of person ids at once
+    // (e.g. case-management's case list showing each case's subject
+    // name, or its case-detail person roster).
+    const idList = ids.split(',').map(s => s.trim()).filter(Boolean);
+    if (!idList.length) return res.json([]);
+    const placeholders = idList.map(() => '?').join(',');
+    return res.json(db.prepare(`SELECT * FROM persons WHERE id IN (${placeholders})`).all(...idList));
+  }
   let sql = 'SELECT DISTINCT p.* FROM persons p';
   const params = [];
   const where = [];

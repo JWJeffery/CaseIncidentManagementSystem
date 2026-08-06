@@ -20,6 +20,24 @@ async function start() {
     res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
   });
 
+  // Safety net added when the first async route (documents.js's
+  // generate-exclusion and vehicle-lookup, both calling out to the
+  // Identity Service) landed in this package -- an async Express handler
+  // with an uncaught throw becomes an unhandled promise rejection, which
+  // crashes the whole Node process under Node 22, not just the one
+  // request. Every async route here has its own try/catch too; this is
+  // defense in depth, matching the same fix already made in
+  // packages/parking after the same failure mode was caught there first.
+  app.use((err, req, res, next) => {
+    console.error('Unhandled route error:', err);
+    if (res.headersSent) return next(err);
+    res.status(500).json({ error: 'Internal server error.' });
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled promise rejection (server stays up):', reason);
+  });
+
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
     console.log(`\n✅ Case Management System running at http://localhost:${PORT}\n`);

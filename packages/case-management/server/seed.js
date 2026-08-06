@@ -1,9 +1,25 @@
 // server/seed.js
 const { initDB, db } = require('./db');
 const { v4: uuidv4 } = require('uuid');
+const { identityFetch, IDENTITY_BASE_URL } = require('@fgsd/shared');
 
 async function run() {
   await initDB();
+
+  // Person biographic data now lives in the Identity Service -- seeding
+  // a demo person means creating it there via HTTP, which means Identity
+  // must actually be running (and already seeded) first. Same real
+  // operational requirement already introduced for parking's vehicle
+  // seeding; checked up front with a clear error rather than a confusing
+  // downstream failure.
+  try {
+    await identityFetch('/api/locations');
+  } catch (err) {
+    console.error(`\n❌ Cannot reach the Identity Service at ${IDENTITY_BASE_URL}.`);
+    console.error(`   Person seeding requires it to be running. In a separate terminal:`);
+    console.error(`   npm run identity:seed && npm run identity\n`);
+    throw err;
+  }
 
 const KGB_POLICIES = [
   { citation: 'KGB-1',  shortLabel: 'Injury / Threat of Injury', policyText: 'Injure or threaten to injure another.' },
@@ -46,35 +62,68 @@ console.log('✓ KGB policy library seeded (26 entries)');
 const now = new Date().toISOString();
 
 const persons = [
-  { id: uuidv4(), personType: 'visitor', firstName: 'Robert', middleName: 'James', lastName: 'Simmons',
+  { firstName: 'Robert', middleName: 'James', lastName: 'Simmons',
     aliases: 'Bobby Simmons', phone: '503-555-0142', address: '411 Oak Street', city: 'Forest Grove',
     state: 'OR', zip: '97116', dob: '1982-04-15', idType: 'Oregon DL', idNumber: 'OR1234567',
     sex: 'Male', race: 'White', height: "5'11\"", weight: '185', hair: 'Brown', eyes: 'Blue',
-    notes: 'Known to district. Prior incident at FGHS 2023.', createdAt: now, updatedAt: now },
-  { id: uuidv4(), personType: 'parent_guardian', firstName: 'Maria', middleName: '', lastName: 'Castillo',
+    personType: 'visitor', notes: 'Known to district. Prior incident at FGHS 2023.' },
+  { firstName: 'Maria', middleName: '', lastName: 'Castillo',
     aliases: '', phone: '503-555-0287', address: '2204 Cedar Lane', city: 'Cornelius', state: 'OR',
     zip: '97113', dob: '1975-11-02', idType: 'Oregon DL', idNumber: 'OR7654321', sex: 'Female',
     race: 'Hispanic', height: "5'4\"", weight: '140', hair: 'Black', eyes: 'Brown',
-    notes: '', createdAt: now, updatedAt: now },
-  { id: uuidv4(), personType: 'staff', firstName: 'Derek', middleName: '', lastName: 'Nguyen',
+    personType: 'parent_guardian', notes: '' },
+  { firstName: 'Derek', middleName: '', lastName: 'Nguyen',
     aliases: '', phone: '503-555-0399', address: '810 Maple Ave', city: 'Forest Grove', state: 'OR',
     zip: '97116', dob: '1988-06-20', idType: 'Employee ID', idNumber: 'FGSD-4412', sex: 'Male',
     race: 'Asian', height: "5'9\"", weight: '170', hair: 'Black', eyes: 'Brown',
-    notes: 'Security coordinator, Neil Armstrong MS.', createdAt: now, updatedAt: now }
+    personType: 'staff', notes: 'Security coordinator, Neil Armstrong MS.' },
 ];
 
-const personFields = ['id','personType','firstName','middleName','lastName','aliases','phone',
-  'address','city','state','zip','dob','idType','idNumber','sex','race',
-  'height','weight','hair','eyes','notes','createdAt','updatedAt'];
-
+// Checked by lastName+firstName+dob before creating -- Identity has no
+// single clean natural key for these (unlike its own seed.js, which had
+// a deliberate synergyImportId for exactly this purpose), so this is the
+// best available check-first key for demo data. Same idempotency lesson
+// already learned and fixed in identity/server/seed.js: INSERT OR IGNORE
+// on a table keyed by a fresh UUID does nothing, and this file now
+// creates people via HTTP where that lesson applies just as much.
+const personIds = [];
 for (const p of persons) {
-  try {
-    db.prepare(`INSERT OR IGNORE INTO persons (${personFields.join(',')})
-      VALUES (${personFields.map(f => '$'+f).join(',')})`)
-      .run(p);
-  } catch(e) { /* skip */ }
+  const searchResults = await identityFetch(`/api/persons?search=${encodeURIComponent(p.lastName)}`);
+  const existing = searchResults.find(r => r.firstName === p.firstName && r.dob === p.dob);
+  let id;
+  if (existing) {
+    id = existing.id;
+  } else {
+    const created = await identityFetch('/api/persons', {
+      method: 'POST',
+      body: JSON.stringify({
+        lastName: p.lastName, firstName: p.firstName, middleName: p.middleName, dob: p.dob,
+        sex: p.sex, race: p.race, height: p.height, weight: p.weight, hairColor: p.hair, eyeColor: p.eyes,
+      }),
+    });
+    id = created.id;
+    if (p.idType && p.idNumber) {
+      await identityFetch(`/api/persons/${id}/identifiers`, {
+        method: 'POST',
+        body: JSON.stringify({ identifierType: p.idType, identifierValue: p.idNumber }),
+      });
+    }
+    if (p.aliases) {
+      for (const aliasName of p.aliases.split(',').map(s => s.trim()).filter(Boolean)) {
+        await identityFetch(`/api/persons/${id}/aliases`, { method: 'POST', body: JSON.stringify({ aliasName, aliasType: 'Other' }) });
+      }
+    }
+  }
+  personIds.push(id);
+
+  const localExisting = db.prepare('SELECT identityPersonId FROM person_local_info WHERE identityPersonId = ?').get(id);
+  if (!localExisting) {
+    db.prepare(`INSERT INTO person_local_info (identityPersonId, personType, phone, address, city, state, zip, notes, createdAt, updatedAt)
+      VALUES ($id, $personType, $phone, $address, $city, $state, $zip, $notes, $now, $now)`)
+      .run({ id, personType: p.personType, phone: p.phone, address: p.address, city: p.city, state: p.state, zip: p.zip, notes: p.notes, now });
+  }
 }
-console.log('✓ Demo persons seeded');
+console.log(`✓ Demo persons: ${personIds.length} on file (created in the Identity Service, safe to re-run)`);
 
 const cases = [
   { id: uuidv4(), caseNumber: 'FGSD-2024-0001', openedAt: '2024-09-15T10:30:00Z',
@@ -117,20 +166,29 @@ for (const c of cases) {
 console.log('✓ Demo cases seeded');
 
 const allCases   = db.prepare('SELECT id FROM cases ORDER BY caseNumber').all();
-const allPersons = db.prepare('SELECT id FROM persons ORDER BY lastName').all();
+// personIds is in the same order as the `persons` array above:
+// [0]=Simmons, [1]=Castillo, [2]=Nguyen. Named here instead of reused as
+// magic indices below, since the old code's allPersons[N] indices relied
+// on SQL's alphabetical-by-lastName ordering (Castillo, Nguyen, Simmons)
+// which no longer applies now that persons come from an array, not a
+// query.
+const [simmonsId, castilloId, nguyenId] = personIds;
 
-if (allCases[0] && allPersons[0]) {
-  try { db.prepare('INSERT OR IGNORE INTO case_persons (id,caseId,personId,role) VALUES ($id,$caseId,$personId,$role)')
-    .run({ id: uuidv4(), caseId: allCases[0].id, personId: allPersons[0].id, role: 'subject' }); } catch(e){}
+// Checked by (caseId, personId, role) before inserting -- same
+// idempotency fix as everywhere else touched during Person wiring
+// (INSERT OR IGNORE on a table keyed by a fresh UUID id does nothing to
+// prevent duplicates; this table had the same latent bug, just not yet
+// caught because nothing had re-run this section of seed.js enough
+// times to notice).
+function linkPersonToCase(caseId, personId, role) {
+  const existing = db.prepare('SELECT id FROM case_persons WHERE caseId = ? AND personId = ? AND role = ?').get(caseId, personId, role);
+  if (existing) return;
+  db.prepare('INSERT INTO case_persons (id, caseId, personId, role) VALUES (?, ?, ?, ?)').run(uuidv4(), caseId, personId, role);
 }
-if (allCases[1] && allPersons[2]) {
-  try { db.prepare('INSERT OR IGNORE INTO case_persons (id,caseId,personId,role) VALUES ($id,$caseId,$personId,$role)')
-    .run({ id: uuidv4(), caseId: allCases[1].id, personId: allPersons[2].id, role: 'reporting_party' }); } catch(e){}
-}
-if (allCases[2] && allPersons[1]) {
-  try { db.prepare('INSERT OR IGNORE INTO case_persons (id,caseId,personId,role) VALUES ($id,$caseId,$personId,$role)')
-    .run({ id: uuidv4(), caseId: allCases[2].id, personId: allPersons[1].id, role: 'subject' }); } catch(e){}
-}
+
+if (allCases[0] && castilloId) linkPersonToCase(allCases[0].id, castilloId, 'subject');
+if (allCases[1] && simmonsId) linkPersonToCase(allCases[1].id, simmonsId, 'reporting_party');
+if (allCases[2] && nguyenId) linkPersonToCase(allCases[2].id, nguyenId, 'subject');
 console.log('✓ Case-person links seeded');
 
 if (allCases[0]) {

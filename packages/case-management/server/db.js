@@ -37,12 +37,43 @@ async function initDB() {
     createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
   );`);
 
+  // AS OF PERSON WIRING (2026-08-06), this table is DEPRECATED and no
+  // longer written to by any route -- person biographic data (name, DOB,
+  // sex, race, physical descriptors) now lives in packages/identity, and
+  // routes/persons.js proxies to it (see @fgsd/shared/src/identityClient.js).
+  // This CREATE TABLE is left in place (harmless, unused) rather than
+  // dropped, matching the same precedent set for parking's deprecated
+  // local vehicles table -- no DDL drop, no benefit to the risk. Do not
+  // add new code that queries it.
   _db.run(`CREATE TABLE IF NOT EXISTS persons (
     id TEXT PRIMARY KEY, personType TEXT, firstName TEXT, middleName TEXT,
     lastName TEXT, aliases TEXT, phone TEXT, address TEXT, city TEXT, state TEXT,
     zip TEXT, dob TEXT, idType TEXT, idNumber TEXT, sex TEXT, race TEXT,
     height TEXT, weight TEXT, hair TEXT, eyes TEXT, notes TEXT,
     createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+  );`);
+
+  // NEW -- person_local_info. Not everything on the old persons table
+  // belongs in Identity's canonical Person file. Two real, deliberate
+  // distinctions here, not just "whatever's left over":
+  //  1. personType here is case-management's own CONTEXTUAL classification
+  //     (parent_guardian, outsider, unknown, etc. -- "who is this person
+  //     in THIS incident") which is semantically different from and not
+  //     mappable onto Identity's personType (Student/Staff/Volunteer/
+  //     Visitor/Other -- a durable relationship to the district). Forcing
+  //     one enum onto the other would lose real information either way,
+  //     so they stay two separate, independent fields.
+  //  2. phone/address/city/state/zip/notes are operationally relevant to
+  //     a case investigation but aren't identity-verifying biographic
+  //     data -- a person's current address changes far more often than
+  //     who they ARE, and case notes are inherently case-specific
+  //     commentary that has no business living in a shared master file.
+  // idType/idNumber from the old schema are NOT duplicated here -- they
+  // map onto Identity's person_identifiers instead (see routes/persons.js).
+  _db.run(`CREATE TABLE IF NOT EXISTS person_local_info (
+    identityPersonId TEXT PRIMARY KEY,
+    personType TEXT, phone TEXT, address TEXT, city TEXT, state TEXT, zip TEXT,
+    notes TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
   );`);
 
   _db.run(`CREATE TABLE IF NOT EXISTS case_persons (
