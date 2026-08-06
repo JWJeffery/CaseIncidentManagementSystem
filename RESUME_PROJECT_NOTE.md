@@ -131,6 +131,24 @@ handled as a first-class architectural concern, not an afterthought.
     (correctly) uses localhost, since that check runs inside the same
     container as the other servers regardless of how the browser reaches
     the console itself.
+    **Separate environment issue found the same session, NOT a code bug —
+    a GitHub Codespaces setting**: even after the URL fix above, Josh hit
+    "Failed to load: Failed to fetch" on Parking's own tabs (Vehicles,
+    Permits, etc.), with the browser console showing every `/api/*`
+    fetch redirected to `github.dev/pf-signin?...` and blocked by CORS
+    ("Redirect is not allowed for a preflight request"). Root cause:
+    Codespaces ports default to **Private** visibility, which requires an
+    interactive GitHub sign-in redirect before the port responds — fine
+    for a full page navigation (the browser can follow the redirect), but
+    a `fetch()` call can't follow a cross-origin auth redirect, so it
+    fails as a CORS error instead. **Fix: in the Codespace's VS Code Ports
+    tab, right-click each port in use (3000, 3001, 3002, 3003, and 8000 if
+    running Reunification) → Port Visibility → Public.** Confirmed working
+    after Josh set this — Parking's tabs loaded and worked normally.
+    **This will need to be redone on every fresh Codespace** (new
+    Codespace = ports default back to Private) — worth checking this
+    FIRST if a future session reports "Failed to fetch" / blank data
+    anywhere, before assuming it's a new code bug.
   - `packages/shared/` (`@fgsd/shared`) — Incident Number (lifetime
     sequence, `FGSD-#######`) / Case Number (annual reset,
     `FGSD-YYYY-#####`) formatting; records classification enum + disclosure
