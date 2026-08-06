@@ -15,6 +15,7 @@ async function start() {
   app.use('/api/notes',     require('./routes/notes'));
   app.use('/api/violations',require('./routes/violations'));
   app.use('/api/documents', require('./routes/documents'));
+  app.use('/api/exclusions', require('./routes/exclusions'));
 
   app.get(/^(?!\/api).*/, (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));

@@ -96,10 +96,29 @@ async function initDB() {
     citation TEXT UNIQUE NOT NULL, shortLabel TEXT NOT NULL, policyText TEXT NOT NULL
   );`);
 
+  // subjectPersonId + issuedDate (added with the cross-module Exclusion
+  // check, 2026-08-06): a served exclusion_notice needs to tie EXACTLY to
+  // the Identity Person it was served on and the date it took effect, so
+  // the exclusion check can compute an accurate active/expired window.
+  // Both nullable -- legacy rows (and cease/desist notices, which have no
+  // person-specific exclusion window) simply leave them null, and
+  // server/exclusions.js falls back to the case's subjects / case dates.
   _db.run(`CREATE TABLE IF NOT EXISTS documents (
     id TEXT PRIMARY KEY, caseId TEXT NOT NULL, documentType TEXT,
-    generatedAt TEXT NOT NULL, generatedBy TEXT, storedContent TEXT
+    generatedAt TEXT NOT NULL, generatedBy TEXT, storedContent TEXT,
+    subjectPersonId TEXT, issuedDate TEXT
   );`);
+
+  // Migrations for databases created before a column existed. sql.js
+  // throws if the column is already present, which the try/catch below
+  // treats as a no-op -- same pattern parking/server/db.js uses.
+  const migrations = [
+    `ALTER TABLE documents ADD COLUMN subjectPersonId TEXT`,
+    `ALTER TABLE documents ADD COLUMN issuedDate TEXT`,
+  ];
+  for (const sql of migrations) {
+    try { _db.run(sql); } catch (e) { /* column already exists -- fine */ }
+  }
 
   _db._save();
   return _db;

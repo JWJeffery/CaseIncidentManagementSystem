@@ -45,6 +45,43 @@ function staffName(id) {
   return s ? s.name : (id || '—');
 }
 
+function fmtExclDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+// Renders an exclusion alert from a summary produced by the cross-module
+// exclusion check (ownerExclusion on a field lookup, the citation POST
+// advisory, or a person-link live check). `who` is a short label like
+// "Registered owner" or "Linked person". This is INFORMATIONAL and never
+// blocks an action -- per the settled Person-linkage policy the system
+// tells the officer, it doesn't stop them:
+//   - a loud RED alert for a person currently excluded from district property
+//   - a quiet AMBER note when the check couldn't run (Case Management down)
+//   - a small confirmation when the person is clear
+function renderExclusionAlert(summary, who) {
+  if (!summary) return '';
+  if (summary.loading) {
+    return `<div class="msg" style="font-size:0.82rem;color:var(--gray-4);">Checking exclusion status…</div>`;
+  }
+  if (summary.available === false) {
+    return `<div class="gate-notice" style="border-left:4px solid #b8860b;">
+      <b>Exclusion check unavailable.</b> Couldn't reach Case Management to verify whether ${esc(who.toLowerCase())} is excluded from district property — proceed, but verify manually if in doubt.</div>`;
+  }
+  if (summary.isExcluded) {
+    const active = (summary.exclusions || []).filter(e => e.status === 'active');
+    const rows = active.map(e => `<li>Case <b>${esc(e.caseNumber || '—')}</b> — ${e.indefinite ? 'no set end date' : 'through ' + esc(fmtExclDate(e.expiresDate))}${e.incidentType ? ` (${esc(e.incidentType)})` : ''}${e.served ? '' : ' — <i>notice not yet recorded as served</i>'}</li>`).join('');
+    return `<div style="background:#fdecea;border:2px solid #c0392b;color:#7b241c;padding:12px;border-radius:8px;margin-bottom:12px;">
+      <div style="font-size:1.05rem;font-weight:700;">⚠ ${esc(who.toUpperCase())} EXCLUDED FROM DISTRICT PROPERTY</div>
+      <div style="margin:6px 0;">${esc(summary.ownerName || summary.personName || 'This person')} is currently excluded from all Forest Grove School District property.</div>
+      <ul style="margin:6px 0 0 18px;">${rows || '<li>Active exclusion on file.</li>'}</ul>
+      <div style="margin-top:8px;font-size:0.85rem;">Presence on district property while a Notice of Exclusion is in effect may constitute Criminal Trespass in the Second Degree (ORS 164.245). Informational only — it does not block issuing a citation.</div>
+    </div>`;
+  }
+  return `<div class="msg success" style="font-size:0.82rem;">No active exclusion on file for ${esc(who.toLowerCase())}.</div>`;
+}
+
 // Shared "Link to Identity Person" widget -- optional on every form that
 // touches a person (Citations, direct Permit issuance, Application
 // approval), per the settled Person-linkage policy (RESUME_PROJECT_NOTE.md):
@@ -65,6 +102,7 @@ function renderPersonLinkWidget(key) {
           <span>Linked: <b>${esc(s.selectedName)}</b></span>
           <button type="button" class="personLinkClearBtn secondary" data-key="${esc(key)}" style="padding:2px 8px;font-size:0.8rem;">Unlink</button>
         </div>
+        ${s.exclusion ? `<div style="margin-top:8px;">${renderExclusionAlert(s.exclusion, 'Linked person')}</div>` : ''}
       ` : `
         <div style="display:flex;gap:6px;">
           <input type="text" class="personLinkQuery" data-key="${esc(key)}" value="${esc(s.query)}" placeholder="Search by name..." style="flex-grow:1;">
@@ -101,10 +139,26 @@ function wirePersonLinkWidgets() {
     };
   });
   root.querySelectorAll('.personLinkResult').forEach(row => {
-    row.onclick = () => {
+    row.onclick = async () => {
       const key = row.dataset.key;
-      state.personLinks[key] = { query: '', results: [], searched: false, selectedId: row.dataset.id, selectedName: row.dataset.name };
+      const id = row.dataset.id;
+      const name = row.dataset.name;
+      // Link immediately, then run a live cross-module exclusion check so
+      // the officer sees a warning BEFORE submitting the form if this
+      // person is currently excluded from district property. Soft-fails.
+      state.personLinks[key] = { query: '', results: [], searched: false, selectedId: id, selectedName: name, exclusion: { loading: true } };
       render();
+      let summary;
+      try {
+        const res = await api(`/exclusion-checks?personId=${encodeURIComponent(id)}`);
+        summary = res.available
+          ? { available: true, personName: name, ...(res.results[id] || {}) }
+          : { available: false, personName: name };
+      } catch (err) {
+        summary = { available: false, personName: name };
+      }
+      const cur = state.personLinks[key];
+      if (cur && cur.selectedId === id) { cur.exclusion = summary; render(); }
     };
   });
   root.querySelectorAll('.personLinkClearBtn').forEach(btn => {
@@ -214,6 +268,11 @@ function renderLookupResult(r, mismatch) {
 
   const v = r.vehicle;
   const p = r.permit;
+  const oe = r.ownerExclusion;
+  const ownerExcluded = oe && oe.available !== false && oe.isExcluded;
+  const ownerChip = ownerExcluded
+    ? ` <span style="background:#c0392b;color:#fff;padding:1px 6px;border-radius:4px;font-size:0.72rem;font-weight:700;">EXCLUDED</span>`
+    : '';
   const mismatchBanner = mismatch === 'no-permit'
     ? `<div class="gate-notice"><b>No active permit on this vehicle.</b> Parked without authorization.</div>`
     : mismatch === 'inactive-permit'
@@ -223,13 +282,14 @@ function renderLookupResult(r, mismatch) {
     : (p ? `<div class="msg success">Permit is Active and zone matches (or no found-zone entered yet to compare).</div>` : '');
 
   return `
+    ${renderExclusionAlert(oe, 'Registered owner')}
     ${mismatchBanner}
     <div class="card">
       <h2>Vehicle</h2>
       <table>
         <tr><th>Plate</th><td>${esc(v.plate)} (${esc(v.state)})</td></tr>
         <tr><th>Vehicle</th><td>${esc(v.year)} ${esc(v.make)} ${esc(v.model)}, ${esc(v.color)}</td></tr>
-        <tr><th>Registered Owner</th><td>${esc(v.ownerName)}${v.ownerRelationship ? ` (${esc(v.ownerRelationship)})` : ''}</td></tr>
+        <tr><th>Registered Owner</th><td>${esc(v.ownerName)}${v.ownerRelationship ? ` (${esc(v.ownerRelationship)})` : ''}${ownerChip}</td></tr>
       </table>
     </div>
     <div class="card">
@@ -1028,7 +1088,11 @@ function wireEvents() {
       const result = await api('/citations', { method: 'POST', body: JSON.stringify(body) });
       await loadAll();
       state.citationPrefill = null;
-      state.msg = { type: 'success', text: `Citation ${result.citationNumber} issued (${result.citationType}, ${result.recordsClassification}).` };
+      let text = `Citation ${result.citationNumber} issued (${result.citationType}, ${result.recordsClassification}).`;
+      if (result.exclusionAdvisory && result.exclusionAdvisory.isExcluded) {
+        text += ' ⚠ Note: the linked person is currently EXCLUDED from district property.';
+      }
+      state.msg = { type: 'success', text };
     } catch (err) { state.msg = { type: 'error', text: err.message }; }
     render();
   };

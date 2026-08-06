@@ -8,6 +8,7 @@ const { requireFeature } = require('../featureGate');
 const { requireActiveStaff } = require('./staff');
 const { getActiveValidPermitForVehicle } = require('./permits');
 const { flatten: flattenVehicle } = require('./vehicles');
+const { checkExclusions } = require('./exclusionChecks');
 
 function esc(v) { return String(v ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch])); }
 
@@ -312,7 +313,20 @@ router.post('/', async (req, res) => {
       $citationType, $recordsClassification, $enforcementOfficerId, $location, $dateIssued, $status, $notes,
       $createdAt, $updatedAt)
   `).run(data);
-  res.json({ id, citationNumber: data.citationNumber, citationType: type, recordsClassification: data.recordsClassification });
+
+  // Advisory (never blocking): if the citation was linked to a real
+  // Identity Person, surface whether that person is currently excluded
+  // from district property, so the confirmation can flag it. The citation
+  // is already written by this point -- writing a citation for an excluded
+  // person is legitimate and important, so this only informs. Soft-fails
+  // silently if case-management is unreachable.
+  let exclusionAdvisory = null;
+  if (identityPersonId) {
+    const check = await checkExclusions([identityPersonId]);
+    exclusionAdvisory = check.available ? (check.results[identityPersonId] || null) : { available: false };
+  }
+
+  res.json({ id, citationNumber: data.citationNumber, citationType: type, recordsClassification: data.recordsClassification, exclusionAdvisory });
   } catch (err) {
     console.error('POST /api/citations failed:', err);
     res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Internal error creating citation.', detail: err.message });

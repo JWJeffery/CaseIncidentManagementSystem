@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node server/index.js",
-    "seed": "node server/seed.js"
+    "seed": "node server/seed.js",
+    "test": "node tests/exclusions.test.js"
   },
   "dependencies": {
     "@fgsd/shared": "*",
