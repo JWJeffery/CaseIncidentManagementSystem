@@ -8,9 +8,11 @@
 const identifiers = require('./identifiers');
 const recordsClassification = require('./recordsClassification');
 const featureFlags = require('./featureFlags');
+const identityClient = require('./identityClient');
 
 module.exports = {
   ...identifiers,
   ...recordsClassification,
   ...featureFlags,
+  ...identityClient,
 };

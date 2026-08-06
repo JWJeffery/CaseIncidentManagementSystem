@@ -64,6 +64,16 @@ async function renderExclusionNotice(params) {
         </div>
 
         <div class="section-divider">Vehicle / Other (optional)</div>
+        <div class="form-grid cols-3" style="margin-bottom:8px;align-items:end;">
+          <div class="form-group">
+            <label class="form-label">Look up by plate</label>
+            <input type="text" id="veh-lookup-plate" class="form-control" placeholder="e.g. DEMO123">
+          </div>
+          <div class="form-group">
+            <button type="button" id="btn-veh-lookup" class="btn btn-secondary">Look Up</button>
+            <span id="veh-lookup-status" style="margin-left:8px;font-size:0.85rem;color:#888;"></span>
+          </div>
+        </div>
         <div class="form-grid cols-3" style="margin-bottom:14px;">
           <div class="form-group">
             <label class="form-label">Vehicle Type</label>
@@ -121,6 +131,26 @@ async function renderExclusionNotice(params) {
 
   document.getElementById('btn-back').addEventListener('click', e => { e.preventDefault(); navigate('case-detail', { id: caseId }); });
   document.getElementById('btn-cancel').addEventListener('click', () => navigate('case-detail', { id: caseId }));
+
+  document.getElementById('btn-veh-lookup').addEventListener('click', async () => {
+    const plate = document.getElementById('veh-lookup-plate').value.trim();
+    const statusEl = document.getElementById('veh-lookup-status');
+    if (!plate) { statusEl.textContent = 'Enter a plate first.'; return; }
+    statusEl.textContent = 'Looking up...';
+    try {
+      const result = await API.get(`/api/documents/vehicle-lookup?plate=${encodeURIComponent(plate)}`);
+      if (!result.found) {
+        statusEl.textContent = 'No match on file -- enter details manually below.';
+        return;
+      }
+      document.getElementById('veh-state').value = result.vehicleInfo.state;
+      document.getElementById('veh-regid').value = result.vehicleInfo.regId;
+      document.getElementById('veh-desc').value = result.vehicleInfo.description;
+      statusEl.textContent = 'Found -- fields filled in below. Vehicle Type still needs to be set manually.';
+    } catch (err) {
+      statusEl.textContent = `Lookup failed: ${err.message}`;
+    }
+  });
 
   document.getElementById('btn-generate').addEventListener('click', async () => {
     const officialName = document.getElementById('official-name').value.trim();

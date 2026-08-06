@@ -3,11 +3,10 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { v4: uuidv4 } = require('uuid');
-const { RecordsClassification, formatCaseNumber } = require('@fgsd/shared');
+const { RecordsClassification, formatCaseNumber, identityFetch } = require('@fgsd/shared');
 const { requireFeature } = require('../featureGate');
 const { requireActiveStaff } = require('./staff');
 const { getActiveValidPermitForVehicle } = require('./permits');
-const { identityFetch } = require('../identityClient');
 const { flatten: flattenVehicle } = require('./vehicles');
 
 function esc(v) { return String(v ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch])); }

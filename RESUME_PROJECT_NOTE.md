@@ -357,13 +357,23 @@ is treated as fully "finished" in the cross-module sense.
      PermitApplication, Vehicle ownership fields left unset during
      application approval) are still free text, not wired to Identity's
      Person Master File. Same live-query decision applies once started.
-   - `case-management` has NOT been wired to Identity at all yet — neither
-     its Vehicle nor Person references. Worth doing its Vehicle wiring
-     next, following the same proxy+flatten pattern established in
-     parking's `routes/vehicles.js`, before starting Person wiring
-     anywhere (Person is the bigger, more sensitive lift — real names,
-     DOBs, physical descriptors — and should probably come last across
-     both modules, not module-by-module).
+   - `case-management`'s Vehicle wiring: **done (2026-08-06)**, but turned
+     out to be a much smaller task than parking's — case-management has
+     no real Vehicle entity of its own at all, only a free-text
+     `vehicleInfo` block (type/state/regId/description) on the Exclusion
+     Notice document generator. Added `GET /api/documents/vehicle-lookup?plate=`
+     as a convenience autofill against Identity, NOT a live-linked
+     record — an exclusion notice's vehicle mention is genuinely optional
+     context (a visitor's car, a one-time contact), so requiring an
+     Identity match would have been the wrong shape. Manual entry stays
+     fully available either way. `case-management`'s Person references
+     are still untouched — that's the real remaining lift.
+   - **Consolidated `identityClient.js` into `@fgsd/shared`** while doing
+     the above (it was about to be duplicated a second time for
+     case-management) — moved from `packages/parking`, all of parking's
+     consumers updated to import from `@fgsd/shared` instead, local copy
+     deleted. Both `parking` and `case-management` now depend on
+     `@fgsd/shared` for this.
    - **Person-linkage policy, settled 2026-08-06 — see "Legal/compliance
      foundation" section above for the full decision.** Short version:
      `personId` on a citation/case is never required to resolve to an

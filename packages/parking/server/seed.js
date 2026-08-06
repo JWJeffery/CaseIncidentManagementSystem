@@ -1,7 +1,7 @@
 // server/seed.js
 const { initDB, db } = require('./db');
 const { v4: uuidv4 } = require('uuid');
-const { identityFetch, IDENTITY_BASE_URL } = require('./identityClient');
+const { identityFetch, IDENTITY_BASE_URL } = require('@fgsd/shared');
 
 async function run() {
   await initDB();

@@ -5,7 +5,7 @@
 // is this vehicle, what's its plate, who owns it" -- and merges in only
 // the data that's genuinely parking's own concern (DMV2U verification
 // status, who locally entered a vehicle) from the local
-// vehicle_dmv_status table. See server/identityClient.js and
+// vehicle_dmv_status table. See @fgsd/shared/src/identityClient.js and
 // RESUME_PROJECT_NOTE.md for the full Phase 1/Phase 2 story.
 //
 // The response shape returned to parking's own frontend is deliberately
@@ -19,7 +19,7 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { requireActiveStaff } = require('./staff');
-const { identityFetch } = require('../identityClient');
+const { identityFetch } = require('@fgsd/shared');
 const { getActiveValidPermitForVehicle } = require('./permits');
 
 function getDmvStatus(identityVehicleId) {

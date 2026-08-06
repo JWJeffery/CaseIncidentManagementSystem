@@ -17,7 +17,7 @@ const router = express.Router();
 const { db } = require('../db');
 const { v4: uuidv4 } = require('uuid');
 const { requireActiveStaff } = require('./staff');
-const { identityFetch } = require('../identityClient');
+const { identityFetch } = require('@fgsd/shared');
 
 const PERMIT_TYPES = [
   'Student', 'Faculty/Staff', 'Visitor', 'Vendor/Contractor',

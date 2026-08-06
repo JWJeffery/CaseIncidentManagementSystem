@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { v4: uuidv4 } = require('uuid');
+const { identityFetch } = require('@fgsd/shared');
 
 const DISTRICT_PROPERTIES = [
   { name: 'District Office', address: '1728 Main Street, Forest Grove, OR 97116' },
@@ -20,6 +21,38 @@ const DISTRICT_PROPERTIES = [
   { name: 'Oak Grove Academy', address: '9125 NW Sargent Road, Gales Creek, OR 97117' },
   { name: 'Tuality Plains High School', address: '2701 Taylor Way, Forest Grove, OR 97116' }
 ];
+
+// GET /api/documents/vehicle-lookup?plate=X
+// Convenience only -- looks up a vehicle in the Identity Service and
+// returns fields shaped to autofill the Exclusion Notice's Vehicle
+// section, but nothing about the notice itself is linked or required to
+// resolve here. Not every vehicle mentioned on an exclusion notice will
+// be in Identity (a visitor's car, a one-time contact), and this is a
+// generated document, not a live record -- manual entry stays fully
+// available either way. "type" (Auto/Motorcycle/etc) is left blank on a
+// match: Identity doesn't track that distinction, and fabricating a
+// value here would be worse than leaving it for a human to fill in.
+router.get('/vehicle-lookup', async (req, res) => {
+  try {
+    const plate = (req.query.plate || '').trim();
+    if (!plate) return res.status(400).json({ error: 'plate is required.' });
+    const result = await identityFetch(`/api/vehicles/lookup?plate=${encodeURIComponent(plate)}`);
+    if (!result.found) return res.json({ found: false });
+    const v = result.vehicle;
+    const reg = v.currentRegistration;
+    res.json({
+      found: true,
+      vehicleInfo: {
+        type: '',
+        state: reg ? reg.state : '',
+        regId: reg ? reg.plate : '',
+        description: [v.year, v.make, v.model, v.color].filter(Boolean).join(' '),
+      },
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
 
 // GET /api/documents/properties
 router.get('/properties', (req, res) => {

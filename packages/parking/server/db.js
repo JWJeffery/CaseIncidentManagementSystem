@@ -37,7 +37,7 @@ async function initDB() {
   // DEPRECATED and no longer written to by any route -- vehicle master
   // data (plate, VIN, make/model/color, ownership) now lives in
   // packages/identity, and parking's routes/vehicles.js proxies to it
-  // (see server/identityClient.js). This CREATE TABLE is left in place
+  // (see @fgsd/shared/src/identityClient.js). This CREATE TABLE is left in place
   // (harmless, unused) rather than dropped, since sql.js DDL drops on a
   // live file are an unnecessary risk for zero benefit -- nothing reads
   // or writes this table anymore. Do not add new code that queries it.
