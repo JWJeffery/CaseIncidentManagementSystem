@@ -292,6 +292,15 @@ async function initDB() {
     `ALTER TABLE tows ADD COLUMN scheduledBy TEXT`,
     `ALTER TABLE tows ADD COLUMN decidedBy TEXT`,
     `ALTER TABLE tows ADD COLUMN releasedBy TEXT`,
+    // NEW -- optional Identity Person linkage, per the settled Person-
+    // linkage policy (RESUME_PROJECT_NOTE.md, "Legal/compliance
+    // foundation"): personId/registrantName stay exactly as they are
+    // (free text, always required, never blocked on a real match) --
+    // this is a SEPARATE, always-optional field a staff member can set
+    // via a deliberate search-and-link action, never auto-populated.
+    `ALTER TABLE parking_permits ADD COLUMN identityPersonId TEXT`,
+    `ALTER TABLE citations ADD COLUMN identityPersonId TEXT`,
+    `ALTER TABLE permit_applications ADD COLUMN identityPersonId TEXT`,
   ];
   for (const sql of migrations) {
     try { _db.run(sql); } catch (e) { /* column already exists -- fine */ }

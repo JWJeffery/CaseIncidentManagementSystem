@@ -1,6 +1,6 @@
 // public/js/app.js
 const root = document.getElementById('app-root');
-let state = { tab: 'lookup', vehicles: [], permits: [], permitTypes: [], applications: [], attachmentsByRecord: {}, staff: [], schoolYear: null, violationCodes: [], citations: [], tows: [], dmvLog: [], msg: null, lookupResult: null, citationPrefill: null, vehicleFilter: { search: '' }, permitFilter: { search: '', status: '', permitType: '' }, citationFilter: { search: '', status: '', citationType: '' }, reportFilter: { from: '', to: '' }, reports: { citations: null, permits: null, tows: null }, _focusId: null, _focusPos: null };
+let state = { tab: 'lookup', vehicles: [], permits: [], permitTypes: [], applications: [], attachmentsByRecord: {}, staff: [], schoolYear: null, violationCodes: [], citations: [], tows: [], dmvLog: [], msg: null, lookupResult: null, citationPrefill: null, vehicleFilter: { search: '' }, permitFilter: { search: '', status: '', permitType: '' }, citationFilter: { search: '', status: '', citationType: '' }, reportFilter: { from: '', to: '' }, reports: { citations: null, permits: null, tows: null }, personLinks: {}, _focusId: null, _focusPos: null };
 
 async function api(path, opts) {
   const res = await fetch(`/api${path}`, {
@@ -43,6 +43,76 @@ function staffOptions(selectedId, { includeInactive = false } = {}) {
 function staffName(id) {
   const s = state.staff.find(st => st.id === id);
   return s ? s.name : (id || '—');
+}
+
+// Shared "Link to Identity Person" widget -- optional on every form that
+// touches a person (Citations, direct Permit issuance, Application
+// approval), per the settled Person-linkage policy (RESUME_PROJECT_NOTE.md):
+// linking is always a deliberate search-and-select action, never
+// required, never auto-populated from whatever free text is in the
+// registrant/personId field. `key` scopes independent widget state (so
+// e.g. each pending application in a list gets its own search state,
+// not one shared across all of them). Renders a hidden input named
+// `identityPersonId` so it submits naturally with the rest of the form.
+function renderPersonLinkWidget(key) {
+  const s = state.personLinks[key] || { query: '', results: [], selectedId: null, selectedName: null };
+  return `
+    <div class="person-link-widget" data-key="${esc(key)}" style="border:1px dashed var(--gray-2);padding:8px;border-radius:6px;">
+      <label style="font-size:0.85rem;">Link to Identity Person (optional)</label>
+      <input type="hidden" name="identityPersonId" value="${esc(s.selectedId || '')}">
+      ${s.selectedId ? `
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Linked: <b>${esc(s.selectedName)}</b></span>
+          <button type="button" class="personLinkClearBtn secondary" data-key="${esc(key)}" style="padding:2px 8px;font-size:0.8rem;">Unlink</button>
+        </div>
+      ` : `
+        <div style="display:flex;gap:6px;">
+          <input type="text" class="personLinkQuery" data-key="${esc(key)}" value="${esc(s.query)}" placeholder="Search by name..." style="flex-grow:1;">
+          <button type="button" class="personLinkSearchBtn secondary" data-key="${esc(key)}">Search</button>
+        </div>
+        ${s.results.length ? `
+          <div style="margin-top:6px;max-height:140px;overflow-y:auto;">
+            ${s.results.map(r => `
+              <div class="personLinkResult" data-key="${esc(key)}" data-id="${esc(r.id)}" data-name="${esc(r.name)}"
+                style="cursor:pointer;padding:4px 6px;border-radius:4px;font-size:0.85rem;" onmouseover="this.style.background='var(--gray-1)'" onmouseout="this.style.background=''">
+                ${esc(r.name)} <span style="color:var(--gray-4);">(${esc(r.personType)}${r.dob ? `, DOB ${esc(r.dob)}` : ''})</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : (s.searched ? `<div style="font-size:0.8rem;color:var(--gray-4);margin-top:4px;">No matches -- proceed without linking, or refine the search.</div>` : '')}
+      `}
+    </div>`;
+}
+
+function wirePersonLinkWidgets() {
+  root.querySelectorAll('.personLinkSearchBtn').forEach(btn => {
+    btn.onclick = async () => {
+      const key = btn.dataset.key;
+      const input = root.querySelector(`.personLinkQuery[data-key="${key}"]`);
+      const query = input.value.trim();
+      if (!query) return;
+      try {
+        const results = await api(`/identityPersons/search?q=${encodeURIComponent(query)}`);
+        state.personLinks[key] = { ...(state.personLinks[key] || {}), query, results, searched: true, selectedId: null, selectedName: null };
+      } catch (err) {
+        state.msg = { type: 'error', text: `Person search failed: ${err.message}` };
+      }
+      render();
+    };
+  });
+  root.querySelectorAll('.personLinkResult').forEach(row => {
+    row.onclick = () => {
+      const key = row.dataset.key;
+      state.personLinks[key] = { query: '', results: [], searched: false, selectedId: row.dataset.id, selectedName: row.dataset.name };
+      render();
+    };
+  });
+  root.querySelectorAll('.personLinkClearBtn').forEach(btn => {
+    btn.onclick = () => {
+      state.personLinks[btn.dataset.key] = { query: '', results: [], searched: false, selectedId: null, selectedName: null };
+      render();
+    };
+  });
 }
 
 // Shared wiring for a live-search text input: updates the given filter
@@ -289,7 +359,8 @@ function renderApplicationRow(a) {
         <div><label>Reviewer</label><select class="reviewerName" data-app="${a.id}"><option value="">-- select --</option>${staffOptions()}</select></div>
         <div><label>Review Notes</label><input class="reviewNotes" data-app="${a.id}"></div>
       </div>
-      <button class="approveBtn" data-app="${a.id}">Approve -- Issue Permit</button>
+      <div style="margin-top:8px;">${renderPersonLinkWidget(`app-${a.id}`)}</div>
+      <button class="approveBtn" data-app="${a.id}" style="margin-top:10px;">Approve -- Issue Permit</button>
       <button class="rejectBtn secondary" data-app="${a.id}" style="margin-left:8px;">Reject</button>
     </div>`;
 }
@@ -423,7 +494,8 @@ function renderPermits() {
           <div><label>Expiration Date${sy && !sy.needsUpdate ? ' (defaults to school year end)' : ''}</label><input name="expirationDate" type="date" value="${defaultExpirationValue}"></div>
           <div><label>Issued By (required)</label><select name="issuedBy" required><option value="">-- select --</option>${staffOptions()}</select></div>
         </div>
-        <button type="submit">Issue Permit</button>
+        ${renderPersonLinkWidget('permitForm')}
+        <button type="submit" style="margin-top:10px;">Issue Permit</button>
       </form>
     </div>
     <div class="card">
@@ -497,12 +569,13 @@ function renderCitations() {
         <div class="form-grid">
           <div><label>Citation Type</label><select name="citationType"><option value="Administrative" ${pre?.citationType !== 'Court' ? 'selected' : ''}>Administrative</option><option value="Court" ${pre?.citationType === 'Court' ? 'selected' : ''}>Court</option></select></div>
           <div><label>Vehicle</label><select name="vehicleId"><option value="">-- none --</option>${vehicleOptions}</select></div>
-          <div><label>Person ID</label><input name="personId" value="${esc(pre?.personId || '')}" placeholder="Free text -- no shared Person store yet"></div>
+          <div><label>Person ID</label><input name="personId" value="${esc(pre?.personId || '')}" placeholder="Free text -- always required, this stays as-is"></div>
           <div><label>Violation Code</label><select name="violationCodeId" required><option value="">-- select --</option>${codeOptions}</select></div>
           <div><label>Enforcement Officer</label><select name="enforcementOfficerId" required><option value="">-- select --</option>${staffOptions(pre?.enforcementOfficerId)}</select></div>
           <div><label>Location</label><input name="location" value="${esc(pre?.location || '')}"></div>
         </div>
-        <button type="submit">Issue Citation</button>
+        ${renderPersonLinkWidget('citationForm')}
+        <button type="submit" style="margin-top:10px;">Issue Citation</button>
       </form>
     </div>
     <div class="card">
@@ -860,6 +933,8 @@ function render() {
 }
 
 function wireEvents() {
+  wirePersonLinkWidgets();
+
   root.querySelectorAll('.tab-btn').forEach(btn => {
     btn.onclick = async () => {
       state.tab = btn.dataset.tab;
@@ -1050,9 +1125,10 @@ function wireEvents() {
       const appId = btn.dataset.app;
       const reviewedBy = root.querySelector(`.reviewerName[data-app="${appId}"]`).value;
       const reviewNotes = root.querySelector(`.reviewNotes[data-app="${appId}"]`).value;
+      const identityPersonId = root.querySelector(`.person-link-widget[data-key="app-${appId}"] input[name="identityPersonId"]`)?.value || null;
       if (!reviewedBy) { state.msg = { type: 'error', text: 'Enter your name as reviewer before approving.' }; render(); return; }
       try {
-        const result = await api(`/applications/${appId}/approve`, { method: 'POST', body: JSON.stringify({ reviewedBy, reviewNotes }) });
+        const result = await api(`/applications/${appId}/approve`, { method: 'POST', body: JSON.stringify({ reviewedBy, reviewNotes, identityPersonId }) });
         await loadAll();
         state.msg = { type: 'success', text: `Approved -- Permit ${result.permitNumber} issued.` };
       } catch (err) { state.msg = { type: 'error', text: err.message }; }

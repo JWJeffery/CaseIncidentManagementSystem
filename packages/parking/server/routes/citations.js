@@ -215,15 +215,28 @@ router.post('/:id/mark-printed', (req, res) => {
 //   Court -- gated behind ECD_COURT_CITATIONS_ENABLED. Rejects with 403
 //     if the board hasn't adopted ECD yet. This is enforced here, not
 //     just documented -- see requireFeature / @fgsd/shared/featureFlags.js.
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
   const {
-    vehicleId, personId, violationCodeId, citationType,
+    vehicleId, personId, identityPersonId, violationCodeId, citationType,
     enforcementOfficerId, location, dateIssued, incidentNumber, notes,
   } = req.body;
 
   if (!violationCodeId || !enforcementOfficerId) {
     return res.status(400).json({ error: 'violationCodeId and enforcementOfficerId are required.' });
+  }
+
+  // identityPersonId is always optional (per the settled Person-linkage
+  // policy) -- when a staff member did link one via search, validate it
+  // actually resolves before accepting it, same defensive posture as
+  // every other cross-service reference in this codebase (e.g.
+  // ownerPersonId on vehicles.js).
+  if (identityPersonId) {
+    try {
+      await identityFetch(`/api/persons/${identityPersonId}`);
+    } catch (err) {
+      return res.status(400).json({ error: `identityPersonId does not match a real Identity Person record: ${err.message}` });
+    }
   }
 
   // enforcementOfficerId must be a real, active Staff record now -- not
@@ -277,6 +290,7 @@ router.post('/', (req, res) => {
     caseNumber: null, // assigned only when a Court citation is filed -- see /:id/file-with-court
     vehicleId: vehicleId || null,
     personId: personId || null,
+    identityPersonId: identityPersonId || null,
     violationCodeId,
     citationType: type,
     recordsClassification: type === 'Administrative'
@@ -291,10 +305,10 @@ router.post('/', (req, res) => {
     updatedAt: now,
   };
   db.prepare(`
-    INSERT INTO citations (id, citationNumber, incidentNumber, caseNumber, vehicleId, personId, violationCodeId,
+    INSERT INTO citations (id, citationNumber, incidentNumber, caseNumber, vehicleId, personId, identityPersonId, violationCodeId,
       citationType, recordsClassification, enforcementOfficerId, location, dateIssued, status, notes,
       createdAt, updatedAt)
-    VALUES ($id, $citationNumber, $incidentNumber, $caseNumber, $vehicleId, $personId, $violationCodeId,
+    VALUES ($id, $citationNumber, $incidentNumber, $caseNumber, $vehicleId, $personId, $identityPersonId, $violationCodeId,
       $citationType, $recordsClassification, $enforcementOfficerId, $location, $dateIssued, $status, $notes,
       $createdAt, $updatedAt)
   `).run(data);

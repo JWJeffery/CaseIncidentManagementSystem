@@ -7,6 +7,7 @@ const { requireActiveStaff } = require('./staff');
 const { isPermitExpired } = require('../permitExpiration');
 const { defaultExpirationDate } = require('../schoolYearConfig');
 const { getCurrentConfig } = require('./schoolYear');
+const { identityFetch } = require('@fgsd/shared');
 
 // Opportunistic expiration sweep -- there's no background job scheduler
 // in this app, so expiration is enforced lazily: any Active permit whose
@@ -103,10 +104,20 @@ router.get('/:id', (req, res) => {
 // module (design doc §4.13) -- not encrypted at rest here yet (sql.js has
 // no column-level encryption), which is worth flagging as a real gap
 // before this goes anywhere near production data, not glossed over.
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
   if (!req.body.personId || !req.body.vehicleId) {
     return res.status(400).json({ error: 'personId and vehicleId are required.' });
+  }
+  // identityPersonId is always optional (settled Person-linkage policy)
+  // -- validated if given, same defensive posture as every other
+  // cross-service reference in this codebase.
+  if (req.body.identityPersonId) {
+    try {
+      await identityFetch(`/api/persons/${req.body.identityPersonId}`);
+    } catch (err) {
+      return res.status(400).json({ error: `identityPersonId does not match a real Identity Person record: ${err.message}` });
+    }
   }
   const issuer = requireActiveStaff(req.body.issuedBy, 'issuedBy');
   const permitType = PERMIT_TYPES.includes(req.body.permitType) ? req.body.permitType : 'Student';
@@ -126,6 +137,7 @@ router.post('/', (req, res) => {
   const data = {
     id,
     personId: req.body.personId,
+    identityPersonId: req.body.identityPersonId || null,
     vehicleId: req.body.vehicleId,
     permitNumber: nextPermitNumber(),
     schoolSite: req.body.schoolSite || '',
@@ -149,13 +161,13 @@ router.post('/', (req, res) => {
     updatedAt: now,
   };
   db.prepare(`
-    INSERT INTO parking_permits (id, personId, vehicleId, permitNumber, schoolSite,
+    INSERT INTO parking_permits (id, personId, identityPersonId, vehicleId, permitNumber, schoolSite,
       registrantName, affiliateType, studentIdNumber, employeeIdNumber,
       driverLicenseNumber, driverLicenseState,
       insuranceCarrier, insurancePolicyNumber, insurancePolicyExpiration,
       ownershipInfo, permitType, parkingZone, issuedBy,
       issuedDate, expirationDate, status, createdAt, updatedAt)
-    VALUES ($id, $personId, $vehicleId, $permitNumber, $schoolSite,
+    VALUES ($id, $personId, $identityPersonId, $vehicleId, $permitNumber, $schoolSite,
       $registrantName, $affiliateType, $studentIdNumber, $employeeIdNumber,
       $driverLicenseNumber, $driverLicenseState,
       $insuranceCarrier, $insurancePolicyNumber, $insurancePolicyExpiration,

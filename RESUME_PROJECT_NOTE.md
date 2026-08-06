@@ -350,20 +350,37 @@ is treated as fully "finished" in the cross-module sense.
    before either goes to production.
 3. Once Josh confirms the monorepo push is solid, he deletes the standalone
    Reunification repo to free a slot.
-4. **Identity wiring, remaining pieces.** `parking`'s Vehicle references
-   are done (see `packages/identity/` note above — Phase 2 vehicle wiring
-   complete, 2026-08-05). `case-management`'s Person references are also
-   done now (2026-08-06 — see below). Still open:
-   - **`parking`'s Person references** (`personId` on Citation, Permit,
-     PermitApplication, Vehicle ownership fields left unset during
-     application approval) are still free text, not wired to Identity's
-     Person Master File. This is the one clearly remaining piece of
-     identity-wiring scope. Same live-query decision applies once
-     started; `case-management`'s Person wiring (below) is the closer
-     model to follow than parking's Vehicle wiring was, since parking
-     never had a real local Person implementation to migrate FROM the
-     way case-management did — parking's Person wiring will look more
-     like "build the link from nothing" than "migrate an existing table."
+4. **Identity wiring: ALL PIECES NOW DONE (2026-08-06).** `parking`'s
+   Vehicle references (2026-08-05), `case-management`'s Vehicle
+   references (2026-08-06), `case-management`'s Person references
+   (2026-08-06), and `parking`'s Person references (2026-08-06) are all
+   wired. This closes out the cross-module identity work that's been the
+   focus of the last several sessions — see below for what each piece
+   actually did, since they turned out to be architecturally quite
+   different from each other, not a single repeated pattern.
+   - **`parking`'s Person references: done (2026-08-06).** Deliberately
+     NOT the same design as Vehicle wiring's full repoint — the settled
+     Person-linkage policy explicitly rules out requiring resolution (a
+     citation has to be writable for a first-time contact who may never
+     be in Identity), so this is additive/optional linking, not a
+     migration. `personId`/`registrantName` free-text fields on Citation,
+     Permit, and PermitApplication are completely untouched and remain
+     the primary, always-required path. A new, separate, nullable
+     `identityPersonId` column lets a staff member optionally link a
+     record to a real Identity Person via a deliberate search-and-select
+     action (new `routes/identityPersons.js`, a thin search/resolve proxy
+     — never used to auto-create or auto-resolve anyone). Wired into
+     Citations, direct Permit issuance, and Application approval, each
+     validating a provided `identityPersonId` against Identity before
+     accepting it. Real value-add surfaced while doing this: Application
+     approval can now actually set vehicle ownership in Identity when a
+     reviewer chooses to link the applicant — previously always left
+     unset since `app.personId` was free text with nothing valid to
+     point ownership at. Frontend: a shared
+     `renderPersonLinkWidget()`/`wirePersonLinkWidgets()` pair (search →
+     results → select → "Linked: Name" with an unlink option) added to
+     all three forms, keyed per-context so multiple pending applications
+     each get independent search state.
    - `case-management`'s Vehicle wiring: **done (2026-08-06)** — turned
      out to be a much smaller task than parking's, since case-management
      has no real Vehicle entity of its own at all, only a free-text

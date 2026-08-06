@@ -127,21 +127,33 @@ router.post('/:id/approve', async (req, res) => {
     }
     const reviewer = requireActiveStaff(req.body.reviewedBy, 'reviewedBy');
 
+    // identityPersonId is always optional (settled Person-linkage
+    // policy) -- this is the natural point for it on an application,
+    // since approval is already a deliberate staff review action, unlike
+    // the initial self-registration submission. Validated if given.
+    if (req.body.identityPersonId) {
+      try {
+        await identityFetch(`/api/persons/${req.body.identityPersonId}`);
+      } catch (err) {
+        return res.status(400).json({ error: `identityPersonId does not match a real Identity Person record: ${err.message}` });
+      }
+    }
+
     const now = new Date().toISOString();
     // Vehicle master data now lives in the Identity Service (Phase 2) --
-    // creates it there instead of a local INSERT. NOTE: does not attempt
-    // to set an owner (ownerPersonId) here -- app.personId is a free-text
-    // string from before Person wiring exists, not a real Identity Person
-    // id, so there is nothing valid to point ownership at yet. The
-    // applicant's self-reported owner name/relationship still gets
-    // recorded, but in the Permit's own free-text ownershipInfo field
-    // below (parking's own concern), not as a fabricated identity
-    // ownership record.
+    // creates it there instead of a local INSERT. If the reviewer linked
+    // the applicant to a real Identity Person above, this now sets real
+    // ownership in Identity too (previously always left unset -- see the
+    // prior version of this comment -- because app.personId was free
+    // text with nothing valid to point ownership at; a deliberate link
+    // resolves that for real, rather than fabricating one).
     const created = await identityFetch('/api/vehicles', {
       method: 'POST',
       body: JSON.stringify({
         plate: app.vehiclePlate, state: app.vehicleState, vin: app.vehicleVin || '',
         make: app.vehicleMake, model: app.vehicleModel, year: app.vehicleYear, color: app.vehicleColor,
+        ownerPersonId: req.body.identityPersonId || undefined,
+        ownerRelationship: req.body.identityPersonId ? (app.ownerRelationship || 'Self') : undefined,
       }),
     });
     const vehicleId = created.id;
@@ -153,20 +165,20 @@ router.post('/:id/approve', async (req, res) => {
     const permitId = uuidv4();
     const permitNumber = nextPermitNumber();
     db.prepare(`
-      INSERT INTO parking_permits (id, personId, vehicleId, permitNumber, schoolSite,
+      INSERT INTO parking_permits (id, personId, identityPersonId, vehicleId, permitNumber, schoolSite,
         registrantName, affiliateType, studentIdNumber, employeeIdNumber,
         driverLicenseNumber, driverLicenseState,
         insuranceCarrier, insurancePolicyNumber, insurancePolicyExpiration,
         ownershipInfo, permitType, parkingZone, issuedBy,
         issuedDate, expirationDate, status, createdAt, updatedAt)
-      VALUES ($id, $personId, $vehicleId, $permitNumber, $schoolSite,
+      VALUES ($id, $personId, $identityPersonId, $vehicleId, $permitNumber, $schoolSite,
         $registrantName, $affiliateType, $studentIdNumber, $employeeIdNumber,
         $driverLicenseNumber, $driverLicenseState,
         $insuranceCarrier, $insurancePolicyNumber, $insurancePolicyExpiration,
         $ownershipInfo, $permitType, $parkingZone, $issuedBy,
         $issuedDate, NULL, 'Active', $createdAt, $updatedAt)
     `).run({
-      id: permitId, personId: app.personId, vehicleId, permitNumber, schoolSite: app.schoolSite,
+      id: permitId, personId: app.personId, identityPersonId: req.body.identityPersonId || null, vehicleId, permitNumber, schoolSite: app.schoolSite,
       registrantName: app.registrantName, affiliateType: app.affiliateType,
       studentIdNumber: app.studentIdNumber, employeeIdNumber: app.employeeIdNumber,
       driverLicenseNumber: app.driverLicenseNumber, driverLicenseState: app.driverLicenseState,
@@ -179,9 +191,9 @@ router.post('/:id/approve', async (req, res) => {
 
     db.prepare(`
       UPDATE permit_applications SET status = 'Approved', reviewedBy = ?, reviewedAt = ?,
-        reviewNotes = ?, resultingVehicleId = ?, resultingPermitId = ?, updatedAt = ?
+        reviewNotes = ?, resultingVehicleId = ?, resultingPermitId = ?, identityPersonId = ?, updatedAt = ?
       WHERE id = ?
-    `).run(reviewer.id, now, req.body.reviewNotes || '', vehicleId, permitId, now, req.params.id);
+    `).run(reviewer.id, now, req.body.reviewNotes || '', vehicleId, permitId, req.body.identityPersonId || null, now, req.params.id);
 
     res.json({ id: req.params.id, vehicleId, permitId, permitNumber });
   } catch (err) {
