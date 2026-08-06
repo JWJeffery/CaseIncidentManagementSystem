@@ -160,8 +160,11 @@ handled as a first-class architectural concern, not an afterthought.
     actually block Court-track citation creation and all Tow writes.
   - Root `npm install` sets up all five workspaces.
     `npm run case-management` / `case-management:seed` /
-    `reunification` / `reunification:test` / `parking` / `parking:seed` /
-    `parking:test` / `identity` / `identity:seed` / `identity:test`.
+    `case-management:test` / `reunification` / `reunification:test` /
+    `parking` / `parking:seed` / `parking:test` / `identity` /
+    `identity:seed` / `identity:test`. (`case-management:test` is new as of
+    2026-08-06 — case-management's first test script, covering the
+    exclusion computation logic.)
   - **Standalone Reunification repo is now redundant** — Josh can delete
     it to free a repo slot; its content is fully preserved in
     `packages/reunification/` here.
@@ -171,6 +174,85 @@ handled as a first-class architectural concern, not an afterthought.
   part of this workstream. (LOTH = Liturgy of the Hours, a liturgical
   project, not a school-safety dashboard as once assumed mid-session —
   corrected same day.)
+
+## Cross-module Exclusion check — DONE (2026-08-06)
+
+The first real PAYOFF of the shared Person store, and the answer to the
+finish-checklist's own example ("an Exclusion check at citation time").
+An officer writing a parking citation, or doing a field plate lookup, is
+now warned when the person involved is CURRENTLY excluded from all
+district property. This was the chosen "shared person store linkage"
+slice — the record→Identity-Person linkage plumbing was already done
+(see §4 below); this builds the cross-module feature that plumbing exists
+for.
+
+Deliberately reused the existing server-to-server, single-origin pattern
+(no new browser cross-calls, no CORS):
+
+- **Exclusions are DERIVED, not a new first-class entity.** A person is
+  excluded when they are the SUBJECT (`case_persons.role`) of a case that
+  is dispositioned `Exclusion` (or carries a violation whose
+  `recommendedAction` is an exclusion), made effective by a served Notice
+  of Exclusion. No new `exclusions` table was added.
+- **`packages/case-management/server/exclusions.js`** — pure, DB-free
+  logic: parse a free-text `exclusionLength` ("1 year"/"90 days"/
+  "permanent"/"N/A"), compute active/expired/indefinite against a served/
+  effective date, assemble per-person records. Unit-tested
+  (`tests/exclusions.test.js`, run via `npm run case-management:test`).
+  DB access lives in the route; this file never touches the db — same
+  pure-logic/DB split parking uses for permitExpiration.js/towWorkflow.js.
+  **SAFETY DIRECTION:** ambiguous data (an unparseable length, an
+  Exclusion disposition with no length-bearing violation) FLAGS the person
+  as excluded rather than silently clearing them — a false "still
+  excluded" that a human then verifies beats a false "all clear" for a
+  field safety check.
+- **`routes/exclusions.js`** — `GET /api/exclusions?personId=` (single)
+  and `?personIds=a,b,c` (batch map). Gathers rows, delegates all judgment
+  to the pure module. Fully synchronous (sql.js) → no async-rejection
+  risk. Mounted in index.js.
+- **`documents` table gained `subjectPersonId` + `issuedDate`** (nullable,
+  with an ALTER-TABLE migration block — case-management's db.js had none
+  before — for existing persisted DBs) so a served exclusion notice ties
+  EXACTLY to the Identity Person it excluded and to the date its window
+  runs from. `generate-exclusion` now persists both; legacy/seed rows
+  without them fall back to the case's subjects / case dates.
+- **`@fgsd/shared/src/caseManagementClient.js`** (`caseManagementFetch`,
+  base URL `CASE_MANAGEMENT_SERVICE_URL` || `http://localhost:3000`) — the
+  mirror of identityClient, exported from `@fgsd/shared`, so parking's
+  backend queries case-management server-to-server.
+- **parking `routes/exclusionChecks.js`** — thin proxy + a shared
+  `checkExclusions()` helper other parking routes reuse. **SOFT-FAILS BY
+  DESIGN:** if case-management is unreachable it returns 200 with
+  `{ available:false }`, NOT an error — an officer must always be able to
+  write a citation. Wired into `GET /api/vehicles/lookup` (checks the
+  resolved vehicle's registered OWNER's Identity id — the field's real
+  question when a plate comes back to a person) and into the citation POST
+  response (an advisory when a person was linked). Both non-blocking.
+- **Frontend** (`parking/public/js/app.js`): a shared
+  `renderExclusionAlert()` — loud red alert for an active exclusion (with
+  case #, expiry date, ORS 164.245 Criminal Trespass II note), amber
+  "check unavailable" when CMS is down, small confirmation when clear.
+  Embedded in the shared person-link widget (so it shows on Citations,
+  direct Permit issuance, AND Application approval — a live check fires the
+  moment a person is linked) and at the top of the Field Lookup result
+  (plus an "EXCLUDED" chip on the owner row).
+
+Seed demo states (all three verifiable live): **Simmons = ACTIVE** (a new
+2026 case `FGSD-2026-0004` with a served notice, 1yr → expires
+2027-05-22), **Castillo = EXPIRED** (the original 2024 1yr exclusion, now
+lapsed — proves the expiry math), **Nguyen = cease-and-desist** (not an
+exclusion at all — proves filtering). A demo Identity vehicle (plate
+**EXCL123**, owned by Simmons) makes the parking plate-lookup →
+owner-excluded path demonstrable end to end. All verified against the
+three running servers via real HTTP AND a headless-browser drive of the
+actual parking UI — including the soft-fail path with case-management
+stopped — not just code review.
+
+**NOT built (deliberate follow-ons, not regressions):** exclusion status
+isn't surfaced inside case-management's OWN UI yet (only its API); there's
+no unified cross-module "person dossier" yet (this exclusion check is the
+first slice of that); reunification isn't wired (still blocked on its
+browser-bundler question, below).
 
 ## The design doc
 
@@ -295,14 +377,36 @@ duplicate data from before this fix needs to manually delete
 `packages/identity/data/` and re-seed** — the fix prevents new
 duplicates, it doesn't retroactively clean up old ones.
 
+**One more instance of the SAME bug, caught and fixed 2026-08-06 during
+the exclusion-check work:** `packages/case-management/server/seed.js`'s
+`notes` and `violations` inserts still used `INSERT OR IGNORE ... VALUES
+($id=uuidv4() ...)`. Only `case_persons` had been converted to check-first
+during Person wiring; notes/violations were missed, so re-running the
+case-management seed silently duplicated every note and violation. Fixed
+by adding check-first helpers (`addNoteOnce` keyed on `(caseId, body)`,
+`addViolationOnce` on `(caseId, citation)`, `addExclusionNoticeOnce` on
+`(caseId, subjectPersonId)`) and routing all inserts through them.
+Verified idempotent by running `npm run case-management:seed` three times
+and confirming stable counts (4 cases, 1 violation on the new case, 1
+EXCL123 vehicle in Identity) via the live API. Demo `cases` were already
+safe — `caseNumber` is `UNIQUE`, so `INSERT OR IGNORE` genuinely dedupes
+there (a real natural-key collision, unlike the UUID PK case). Lesson
+reinforced: `INSERT OR IGNORE` is only safe when the table has a real
+UNIQUE/natural key that would actually collide.
+
 ## Standing operational rule (set 2026-08-05)
 
 **Finish each module completely before moving to the next one.** Applies
-to all future modules too, unless Josh explicitly says otherwise.
-Currently finishing `packages/parking` — see the checklist below for what
-"finished" still requires. Do not start work on Injury Reports, the
-Central Counter Service, auth, or any other module until this list is
-empty or Josh explicitly redirects.
+to all future modules too, unless Josh explicitly says otherwise. And
+finish means VERIFIED LIVE against running servers (real HTTP, and for UI
+work an actual browser drive), not just code review.
+`packages/parking`'s own checklist is now empty (fully complete), and the
+first cross-cutting payoff of the shared Person store — the Exclusion
+check at citation time — is built and verified (see its section above).
+The remaining genuinely-unbuilt cross-cutting concern is auth/roles. Do
+not start Injury Reports, the Central Counter Service, or another module
+without either clearing/relating to the open cross-cutting items or
+getting Josh's explicit redirect.
 
 ## packages/parking "finish" checklist (as of 2026-08-05)
 
@@ -351,23 +455,34 @@ than reunification." The service worker only caches the static app
 shell; it deliberately never intercepts `/api/` requests.
 
 **All strictly parking-specific items on the finish checklist are now
-done.** What remains are two cross-cutting gaps that were never
-parking's alone to fix:
-1. No shared Person store — `parking` and `case-management` both use
-   free-text `personId` strings with no cross-reference. Design doc's
-   biggest unbuilt piece (§4.1); blocks real cross-module linkage (e.g.
-   an Exclusion check at citation time).
-2. No auth/role system exists anywhere in the monorepo. Several places
-   (Applications approve/reject, Staff roster itself) note this
-   explicitly — the system tracks WHO performed an action (via the Staff
-   roster) but doesn't yet gate WHO CAN.
+done.** Of the two cross-cutting gaps that were never parking's alone to
+fix, the first is now substantially closed and the second is still open:
+1. ~~No shared Person store~~ — **DONE.** The shared Person store IS the
+   Identity Service, and both parking and case-management are wired to it
+   (§4 below): Vehicle + Person references on both sides, plus optional
+   `identityPersonId` linkage on parking's citations/permits/applications.
+   The design-doc §4.1 "biggest unbuilt piece" is built. And its named
+   payoff — an **Exclusion check at citation time** — is now built and
+   verified too (see "Cross-module Exclusion check" section above). This
+   gap description is left here only struck-through so the reconciliation
+   is visible; it was stale (written 2026-08-05, before the §4 wiring and
+   the 2026-08-06 exclusion work). What's LEFT under this heading is
+   broader/optional, not blocking: exclusion status inside
+   case-management's own UI, a unified cross-module person dossier, and
+   reunification's live-UI wiring (blocked on its bundler question).
+2. **No auth/role system exists anywhere in the monorepo** — still open.
+   Several places (Applications approve/reject, Staff roster itself) note
+   this explicitly — the system tracks WHO performed an action (via the
+   Staff roster) but doesn't yet gate WHO CAN. This is now the single
+   largest genuinely-unbuilt cross-cutting concern.
 
 Per the standing rule (finish each module before moving to the next),
-the next conversation should either (a) tackle one of these two
-cross-cutting gaps, since parking itself is now functionally complete,
-or (b) get Josh's explicit sign-off to move to a different module
-entirely (Injury Reports, Central Counter Service, etc.) before parking
-is treated as fully "finished" in the cross-module sense.
+parking is functionally complete and its checklist is empty. The next
+conversation should either (a) tackle the auth/role gap (#2, now the
+biggest open cross-cutting item), (b) extend the exclusion work (surface
+it in case-management's UI; build toward the cross-module person
+dossier), or (c) get Josh's explicit sign-off to move to a different
+module entirely (Injury Reports, Central Counter Service, etc.).
 
 ## On the horizon
 

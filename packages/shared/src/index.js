@@ -9,10 +9,12 @@ const identifiers = require('./identifiers');
 const recordsClassification = require('./recordsClassification');
 const featureFlags = require('./featureFlags');
 const identityClient = require('./identityClient');
+const caseManagementClient = require('./caseManagementClient');
 
 module.exports = {
   ...identifiers,
   ...recordsClassification,
   ...featureFlags,
   ...identityClient,
+  ...caseManagementClient,
 };

@@ -149,7 +149,20 @@ const cases = [
     initialNarrative: 'Parent became verbally abusive toward staff during a school event. Raised voice, used profanity, and refused to leave when asked by the principal.',
     immediateActions: 'Police non-emergency line consulted. Parent eventually left voluntarily.',
     status: 'Under Review', disposition: null, lawEnforcementInvolved: 0,
-    safetyRiskLevel: 'medium', createdAt: '2024-10-10T13:00:00Z', updatedAt: '2024-10-10T15:30:00Z' }
+    safetyRiskLevel: 'medium', createdAt: '2024-10-10T13:00:00Z', updatedAt: '2024-10-10T15:30:00Z' },
+  // A RECENT exclusion (2026) with a served notice -- so the cross-module
+  // exclusion check has a genuinely ACTIVE example to surface, alongside
+  // Castillo's now-EXPIRED 2024 exclusion (below) and Nguyen's
+  // cease-and-desist (not an exclusion at all). Three distinct states,
+  // which is exactly what makes the feature verifiable end to end.
+  { id: uuidv4(), caseNumber: 'FGSD-2026-0004', openedAt: '2026-05-20T09:00:00Z',
+    incidentAt: '2026-05-19T15:10:00Z', schoolSite: 'Forest Grove High School',
+    location: 'Student Parking Lot', incidentType: 'Threatening Behavior',
+    createdBy: 'T. Hoffman', assignedTo: 'T. Hoffman',
+    initialNarrative: 'Non-student entered the student lot during dismissal and threatened a staff member who asked him to leave. Recognized from a prior campus contact.',
+    immediateActions: 'Subject escorted off property. Notice of Exclusion prepared and served the same week.',
+    status: 'Action Issued', disposition: 'Exclusion', lawEnforcementInvolved: 0,
+    safetyRiskLevel: 'high', createdAt: '2026-05-20T09:00:00Z', updatedAt: '2026-05-22T16:00:00Z' }
 ];
 
 const caseFields = ['id','caseNumber','openedAt','incidentAt','schoolSite','location','incidentType',
@@ -186,52 +199,121 @@ function linkPersonToCase(caseId, personId, role) {
   db.prepare('INSERT INTO case_persons (id, caseId, personId, role) VALUES (?, ?, ?, ?)').run(uuidv4(), caseId, personId, role);
 }
 
+// Check-first inserts for notes / violations / documents. These replaced
+// the earlier `INSERT OR IGNORE ... VALUES ($id=uuidv4() ...)` pattern,
+// which is the SAME latent idempotency bug documented in
+// RESUME_PROJECT_NOTE.md: IGNORE only suppresses a PRIMARY KEY collision,
+// and a fresh UUID never collides, so every re-run silently duplicated
+// every note and violation. Only case_persons had been fixed during
+// Person wiring; notes/violations still had it until the exclusion-check
+// work touched this section. Natural keys used: (caseId, body) for notes,
+// (caseId, citation) for violations, (caseId, subjectPersonId) for a
+// served exclusion notice.
+function addNoteOnce(caseId, author, noteType, body, createdAt) {
+  const existing = db.prepare('SELECT id FROM notes WHERE caseId = ? AND body = ?').get(caseId, body);
+  if (existing) return;
+  db.prepare('INSERT INTO notes (id,caseId,author,noteType,body,createdAt) VALUES ($id,$caseId,$author,$noteType,$body,$createdAt)')
+    .run({ id: uuidv4(), caseId, author, noteType, body, createdAt });
+}
+function addViolationOnce(caseId, v) {
+  const existing = db.prepare('SELECT id FROM violations WHERE caseId = ? AND citation = ?').get(caseId, v.citation);
+  if (existing) return;
+  db.prepare(`INSERT INTO violations (id,caseId,basisType,citation,shortLabel,description,recommendedAction,exclusionLength,createdAt,updatedAt)
+    VALUES ($id,$caseId,$basisType,$citation,$shortLabel,$description,$recommendedAction,$exclusionLength,$createdAt,$updatedAt)`)
+    .run({ id: uuidv4(), caseId, basisType: 'KGB', citation: v.citation, shortLabel: v.shortLabel,
+      description: v.description, recommendedAction: v.recommendedAction, exclusionLength: v.exclusionLength,
+      createdAt: now, updatedAt: now });
+}
+function addExclusionNoticeOnce(caseId, subjectPersonId, issuedDate, generatedAt, generatedBy) {
+  const existing = db.prepare("SELECT id FROM documents WHERE caseId = ? AND documentType = 'exclusion_notice' AND subjectPersonId = ?").get(caseId, subjectPersonId);
+  if (existing) return;
+  db.prepare(`INSERT INTO documents (id, caseId, documentType, generatedAt, generatedBy, storedContent, subjectPersonId, issuedDate)
+    VALUES (?, ?, 'exclusion_notice', ?, ?, ?, ?, ?)`)
+    .run(uuidv4(), caseId, generatedAt, generatedBy,
+      '<!DOCTYPE html><html><body><!-- Seeded served Notice of Exclusion (demo). The real generator lives in routes/documents.js. --></body></html>',
+      subjectPersonId, issuedDate);
+}
+
+const case4 = db.prepare("SELECT id FROM cases WHERE caseNumber = 'FGSD-2026-0004'").get();
+
 if (allCases[0] && castilloId) linkPersonToCase(allCases[0].id, castilloId, 'subject');
 if (allCases[1] && simmonsId) linkPersonToCase(allCases[1].id, simmonsId, 'reporting_party');
 if (allCases[2] && nguyenId) linkPersonToCase(allCases[2].id, nguyenId, 'subject');
+if (case4 && simmonsId) linkPersonToCase(case4.id, simmonsId, 'subject');
 console.log('✓ Case-person links seeded');
 
 if (allCases[0]) {
-  try { db.prepare('INSERT OR IGNORE INTO notes (id,caseId,author,noteType,body,createdAt) VALUES ($id,$caseId,$author,$noteType,$body,$createdAt)')
-    .run({ id: uuidv4(), caseId: allCases[0].id, author: 'T. Hoffman', noteType: 'investigation',
-      body: 'Reviewed security camera footage from 2:40–2:50 PM. Subject clearly visible near student. Footage saved to district server.',
-      createdAt: '2024-09-15T11:00:00Z' }); } catch(e){}
-  try { db.prepare('INSERT OR IGNORE INTO notes (id,caseId,author,noteType,body,createdAt) VALUES ($id,$caseId,$author,$noteType,$body,$createdAt)')
-    .run({ id: uuidv4(), caseId: allCases[0].id, author: 'T. Hoffman', noteType: 'admin',
-      body: 'Exclusion notice generated and served to subject at district office. Copy provided to FGHS principal.',
-      createdAt: '2024-09-16T09:00:00Z' }); } catch(e){}
+  addNoteOnce(allCases[0].id, 'T. Hoffman', 'investigation',
+    'Reviewed security camera footage from 2:40–2:50 PM. Subject clearly visible near student. Footage saved to district server.',
+    '2024-09-15T11:00:00Z');
+  addNoteOnce(allCases[0].id, 'T. Hoffman', 'admin',
+    'Exclusion notice generated and served to subject at district office. Copy provided to FGHS principal.',
+    '2024-09-16T09:00:00Z');
 }
 if (allCases[2]) {
-  try { db.prepare('INSERT OR IGNORE INTO notes (id,caseId,author,noteType,body,createdAt) VALUES ($id,$caseId,$author,$noteType,$body,$createdAt)')
-    .run({ id: uuidv4(), caseId: allCases[2].id, author: 'P. Okafor', noteType: 'witness',
-      body: 'PE teacher Ms. Reyes witnessed entire incident. Statement collected and on file.',
-      createdAt: '2024-10-10T14:00:00Z' }); } catch(e){}
+  addNoteOnce(allCases[2].id, 'P. Okafor', 'witness',
+    'PE teacher Ms. Reyes witnessed entire incident. Statement collected and on file.',
+    '2024-10-10T14:00:00Z');
+}
+if (case4) {
+  addNoteOnce(case4.id, 'T. Hoffman', 'admin',
+    'Notice of Exclusion served to subject in person on 2026-05-22. One-year exclusion from all district property. Copy provided to FGHS principal and District Public Safety.',
+    '2026-05-22T16:00:00Z');
 }
 console.log('✓ Demo notes seeded');
 
 if (allCases[0]) {
-  try { db.prepare('INSERT OR IGNORE INTO violations (id,caseId,basisType,citation,shortLabel,description,recommendedAction,exclusionLength,createdAt,updatedAt) VALUES ($id,$caseId,$basisType,$citation,$shortLabel,$description,$recommendedAction,$exclusionLength,$createdAt,$updatedAt)')
-    .run({ id: uuidv4(), caseId: allCases[0].id, basisType: 'KGB', citation: 'KGB-1',
-      shortLabel: 'Injury / Threat of Injury',
-      description: 'Subject made verbal threats toward a student in the parking lot.',
-      recommendedAction: 'Exclusion from all district property', exclusionLength: '1 year',
-      createdAt: now, updatedAt: now }); } catch(e){}
-  try { db.prepare('INSERT OR IGNORE INTO violations (id,caseId,basisType,citation,shortLabel,description,recommendedAction,exclusionLength,createdAt,updatedAt) VALUES ($id,$caseId,$basisType,$citation,$shortLabel,$description,$recommendedAction,$exclusionLength,$createdAt,$updatedAt)')
-    .run({ id: uuidv4(), caseId: allCases[0].id, basisType: 'KGB', citation: 'KGB-18',
-      shortLabel: 'Camping / Loitering / Unauthorized Presence',
-      description: 'Subject had no legitimate purpose on campus and was not authorized to be present.',
-      recommendedAction: 'Exclusion from all district property', exclusionLength: '1 year',
-      createdAt: now, updatedAt: now }); } catch(e){}
+  addViolationOnce(allCases[0].id, { citation: 'KGB-1', shortLabel: 'Injury / Threat of Injury',
+    description: 'Subject made verbal threats toward a student in the parking lot.',
+    recommendedAction: 'Exclusion from all district property', exclusionLength: '1 year' });
+  addViolationOnce(allCases[0].id, { citation: 'KGB-18', shortLabel: 'Camping / Loitering / Unauthorized Presence',
+    description: 'Subject had no legitimate purpose on campus and was not authorized to be present.',
+    recommendedAction: 'Exclusion from all district property', exclusionLength: '1 year' });
 }
 if (allCases[2]) {
-  try { db.prepare('INSERT OR IGNORE INTO violations (id,caseId,basisType,citation,shortLabel,description,recommendedAction,exclusionLength,createdAt,updatedAt) VALUES ($id,$caseId,$basisType,$citation,$shortLabel,$description,$recommendedAction,$exclusionLength,$createdAt,$updatedAt)')
-    .run({ id: uuidv4(), caseId: allCases[2].id, basisType: 'KGB', citation: 'KGB-3',
-      shortLabel: 'Abusive Conduct Interfering with Activities',
-      description: 'Parent used abusive verbal conduct toward staff during a school-sanctioned event.',
-      recommendedAction: 'Warning / Cease and Desist', exclusionLength: 'N/A',
-      createdAt: now, updatedAt: now }); } catch(e){}
+  addViolationOnce(allCases[2].id, { citation: 'KGB-3', shortLabel: 'Abusive Conduct Interfering with Activities',
+    description: 'Parent used abusive verbal conduct toward staff during a school-sanctioned event.',
+    recommendedAction: 'Warning / Cease and Desist', exclusionLength: 'N/A' });
+}
+if (case4) {
+  addViolationOnce(case4.id, { citation: 'KGB-1', shortLabel: 'Injury / Threat of Injury',
+    description: 'Subject threatened a staff member in the student parking lot during dismissal.',
+    recommendedAction: 'Exclusion from all district property', exclusionLength: '1 year' });
+  // The served Notice of Exclusion -- issued 2026-05-22, so with a
+  // one-year length this exclusion is currently ACTIVE (expires
+  // 2027-05-22). subjectPersonId ties it to Simmons; issuedDate is the
+  // effective date the exclusion check computes the window from.
+  if (simmonsId) addExclusionNoticeOnce(case4.id, simmonsId, '2026-05-22', '2026-05-22T15:30:00Z', 'T. Hoffman');
 }
 console.log('✓ Demo violations seeded');
+
+// Owner-excluded demo vehicle -- created in the Identity Service (the
+// vehicle master file) and owned by Simmons, who is now actively excluded
+// (case FGSD-2026-0004 above). This makes the cross-module check
+// demonstrable end to end FROM PARKING: looking plate EXCL123 up in the
+// Field Lookup returns the vehicle AND a red "registered owner is excluded
+// from district property" alert, because parking asks case-management
+// about the resolved owner. Seeded here rather than in identity's own seed
+// because that seed runs before these Person records exist, and this is
+// the only seed that knows simmonsId. Idempotent: skipped if the plate is
+// already on file.
+const EXCLUDED_OWNER_PLATE = 'EXCL123';
+if (simmonsId) {
+  const existing = await identityFetch(`/api/vehicles?search=${EXCLUDED_OWNER_PLATE}`);
+  const already = existing.find(v => v.currentPlate === EXCLUDED_OWNER_PLATE);
+  if (!already) {
+    await identityFetch('/api/vehicles', {
+      method: 'POST',
+      body: JSON.stringify({ plate: EXCLUDED_OWNER_PLATE, state: 'OR', make: 'Chevrolet',
+        model: 'Silverado', year: '2016', color: 'Black',
+        ownerPersonId: simmonsId, ownerRelationship: 'Self' }),
+    });
+    console.log(`✓ Demo owner-excluded vehicle created in Identity (plate ${EXCLUDED_OWNER_PLATE}, owned by the excluded subject)`);
+  } else {
+    console.log(`✓ Demo owner-excluded vehicle already on file (plate ${EXCLUDED_OWNER_PLATE})`);
+  }
+}
+
 console.log('\n✅ All seed data complete. Run: npm start');
 }
 

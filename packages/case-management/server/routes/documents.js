@@ -106,11 +106,16 @@ router.post('/generate-exclusion', async (req, res) => {
 
     const docId = uuidv4();
     const now = new Date().toISOString();
+    // Persist subjectPersonId + issuedDate so the cross-module exclusion
+    // check (server/exclusions.js) can tie a served notice exactly to the
+    // Identity Person it excluded and compute the correct active/expired
+    // window from the date it took effect. issuedDate falls back to the
+    // generation time when the form didn't supply one.
     db.prepare(`
-      INSERT INTO documents (id, caseId, documentType, generatedAt, generatedBy, storedContent)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO documents (id, caseId, documentType, generatedAt, generatedBy, storedContent, subjectPersonId, issuedDate)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(docId, caseId, isExclusion ? 'exclusion_notice' : 'cease_desist_notice',
-      now, issuingOfficial || '', html);
+      now, issuingOfficial || '', html, subjectPersonId || null, issuedDate || now);
 
     res.json({ id: docId, html });
   } catch (err) {

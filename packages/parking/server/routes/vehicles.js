@@ -21,6 +21,7 @@ const { db } = require('../db');
 const { requireActiveStaff } = require('./staff');
 const { identityFetch } = require('@fgsd/shared');
 const { getActiveValidPermitForVehicle } = require('./permits');
+const { checkExclusions } = require('./exclusionChecks');
 
 function getDmvStatus(identityVehicleId) {
   return db.prepare('SELECT * FROM vehicle_dmv_status WHERE identityVehicleId = ?').get(identityVehicleId) || {
@@ -95,7 +96,30 @@ router.get('/lookup', async (req, res) => {
 
     const vehicle = flatten(identityVehicle);
     const permit = getActiveValidPermitForVehicle(identityVehicle.id);
-    res.json({ found: true, vehicle, permit: permit || null });
+
+    // Cross-module exclusion check on the vehicle's REGISTERED OWNER --
+    // the field's most important question when a plate comes back to a
+    // real person: is that owner currently barred from district property?
+    // The owner's Identity Person id is only on the vehicle's detail
+    // shape (currentOwner.id / currentOwnership.personId), which
+    // flatten() drops, so read it straight off the raw identity record.
+    // Soft-fails to { available:false } if case-management is down -- the
+    // lookup itself still returns the vehicle and permit.
+    const ownerPersonId = (identityVehicle.currentOwner && identityVehicle.currentOwner.id)
+      || (identityVehicle.currentOwnership && identityVehicle.currentOwnership.personId)
+      || null;
+    let ownerExclusion = null;
+    if (ownerPersonId) {
+      const check = await checkExclusions([ownerPersonId]);
+      ownerExclusion = {
+        available: check.available,
+        personId: ownerPersonId,
+        ownerName: vehicle.ownerName || '',
+        ...(check.results[ownerPersonId] || {}),
+      };
+    }
+
+    res.json({ found: true, vehicle, permit: permit || null, ownerExclusion });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message });
   }
