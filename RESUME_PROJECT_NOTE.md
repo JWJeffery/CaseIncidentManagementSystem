@@ -180,6 +180,28 @@ from memory.
   Tow subsystem may be designed and built, but must ship feature-gated,
   disabled by default (see `@fgsd/shared` feature flags above). Building
   is not authorization to enable.
+- **Person-linkage policy (settled 2026-08-06):** a citation's or case's
+  `personId` never has to resolve to a real Identity Service Person
+  record, and no module may silently auto-create a placeholder Identity
+  Person just to have something to point at. Real-world reasoning: an
+  officer has to be able to write a citation for a first-time contact or
+  a visitor immediately, and forcing "must resolve to Identity" would
+  either block a legitimate citation or pressure sloppy on-the-spot
+  Person creation — three different officers each typing "John Doe" on
+  three different stops becomes three unlinked half-populated Person
+  records, which defeats the entire point of a master file. Linking to
+  an existing Identity Person (search-and-link) or creating a genuinely
+  new one (a real Add Person flow with real fields) is always a
+  deliberate staff action, never a side effect of submitting a citation
+  or case. This is also the actual posture real records systems (NCIC/
+  LEDS) take — contact records get written regardless; matching to a
+  master record happens deliberately, not automatically. This was the
+  explicit blocker noted before Person wiring (`parking`'s `personId`
+  fields, `case-management`'s person references) could start; it's
+  resolved now, so that work is unblocked whenever it's prioritized. No
+  new Identity schema needed for this — `GET /api/persons?search=`
+  already supports the "check for a match first" step every consumer
+  will need.
 
 ## A mistake made and corrected this session — for awareness, not repetition
 
@@ -342,15 +364,16 @@ is treated as fully "finished" in the cross-module sense.
      anywhere (Person is the bigger, more sensitive lift — real names,
      DOBs, physical descriptors — and should probably come last across
      both modules, not module-by-module).
-   - Real design question still open for Person specifically: how does a
-     citation's or case's `personId` (someone who may not be on file yet
-     — a driver stopped for the first time, a visitor) relate to
-     Identity's canonical Person record? Does an "unknown person" get a
-     placeholder Identity record created on the spot, or does parking/
-     case-management keep tolerating a personId that doesn't resolve to
-     anything in Identity until a real file exists? This needs a real
-     answer before Person wiring starts, not an assumption baked in
-     partway through.
+   - **Person-linkage policy, settled 2026-08-06 — see "Legal/compliance
+     foundation" section above for the full decision.** Short version:
+     `personId` on a citation/case is never required to resolve to an
+     Identity Person, and nothing auto-creates a placeholder Identity
+     record. Linking/creating a real Person is always a deliberate staff
+     action (search-and-link, or a real Add Person with real fields), not
+     a side effect of submitting a citation or case. This was the
+     blocking design question before Person wiring could start — it's
+     resolved now, so Person wiring itself is unblocked whenever it's
+     prioritized.
 5. **Document upload is a labeled PROTOTYPE, not production-ready** —
    `packages/parking/server/routes/attachments.js` + `document_attachments`
    table. Local disk storage, no encryption at rest, no access control, no
