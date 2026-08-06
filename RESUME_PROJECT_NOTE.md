@@ -119,6 +119,18 @@ handled as a first-class architectural concern, not an afterthought.
     into a real dashboard later — don't over-build it now. Module registry
     lives in `server/modules.js` (single source of truth — the frontend
     renders from `GET /api/modules`, nothing is hardcoded twice).
+    **Bug fixed 2026-08-06**: "Open" links produced ERR_CONNECTION_REFUSED
+    in GitHub Codespaces specifically (caught from Josh's own screenshots)
+    — the console conflated two different needs (server-side reachability
+    vs. browser-facing navigation) into one hardcoded `localhost:PORT`
+    value. Codespaces forwards ports via subdomain
+    (`name-PORT.app.github.dev`), not a real `:PORT` on localhost, so that
+    URL only ever worked for local dev. Fixed by computing the Open URL
+    client-side from `window.location` at render time instead of trusting
+    a server-provided baseUrl; the server-side status check still
+    (correctly) uses localhost, since that check runs inside the same
+    container as the other servers regardless of how the browser reaches
+    the console itself.
   - `packages/shared/` (`@fgsd/shared`) — Incident Number (lifetime
     sequence, `FGSD-#######`) / Case Number (annual reset,
     `FGSD-YYYY-#####`) formatting; records classification enum + disclosure

@@ -5,33 +5,41 @@
 // GET /api/modules, which also attaches live up/down status) rather
 // than each module being hardcoded separately in HTML somewhere -- add
 // a module here and it shows up everywhere this list is used.
+//
+// Deliberately stores just the PORT, not a full baseUrl -- see
+// server/index.js's comment on why. Server-side status checks always use
+// localhost (correct: the check runs inside the same container/machine
+// as the other servers), but the browser-facing "Open" link cannot
+// assume localhost is reachable from wherever the browser actually is
+// (e.g. GitHub Codespaces, where the browser is remote and reaches
+// forwarded ports through a completely different URL scheme).
 const MODULES = [
   {
     id: 'case-management',
     name: 'Case Management',
     description: 'Case -> Persons -> Notes -> Violations -> Documents. KGB policy library, Exclusion Notice generation, LEU/Education Record classification.',
-    baseUrl: 'http://localhost:3000',
+    port: 3000,
     color: '#1a2744',
   },
   {
     id: 'parking',
     name: 'Parking / Citation System',
     description: 'Vehicle permits (school-year auto-expiring), Citations (Administrative live, Court board-gated), Towing (board-gated), DMV2U query log, reporting.',
-    baseUrl: 'http://localhost:3001',
+    port: 3001,
     color: '#40916c',
   },
   {
     id: 'identity',
     name: 'Identity Service',
     description: 'Person / Vehicle / Location master files, NCIC/LEDS-inspired. Shared identity records other modules reference instead of duplicating.',
-    baseUrl: 'http://localhost:3002',
+    port: 3002,
     color: '#6b4c9a',
   },
   {
     id: 'reunification',
     name: 'Reunification',
     description: 'Claimant entry -> SIS match/approval -> reunifier handoff -> release. Standard Reunification Method workflow, client-side only.',
-    baseUrl: 'http://localhost:8000',
+    port: 8000,
     color: '#b5651d',
   },
 ];
